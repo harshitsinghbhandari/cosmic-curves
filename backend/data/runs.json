@@ -1,0 +1,352 @@
+[
+  {
+    "run_id": "run_RLI8U3_1774276393",
+    "session_code": "RLI8U3",
+    "timestamp": "2026-03-23T14:33:13Z",
+    "coordinates": [
+      {
+        "x_cm": 4.684,
+        "y_cm": -8.586,
+        "frame_index": 18,
+        "score": 0.906
+      },
+      {
+        "x_cm": -4.879,
+        "y_cm": -8.586,
+        "frame_index": 11,
+        "score": 0.906
+      },
+      {
+        "x_cm": -2.147,
+        "y_cm": -9.367,
+        "frame_index": 13,
+        "score": 0.905
+      },
+      {
+        "x_cm": 1.951,
+        "y_cm": -9.367,
+        "frame_index": 16,
+        "score": 0.905
+      },
+      {
+        "x_cm": 14.051,
+        "y_cm": 0.585,
+        "frame_index": 25,
+        "score": 0.901
+      },
+      {
+        "x_cm": -11.514,
+        "y_cm": -2.927,
+        "frame_index": 6,
+        "score": 0.901
+      },
+      {
+        "x_cm": 11.318,
+        "y_cm": -2.927,
+        "frame_index": 23,
+        "score": 0.901
+      },
+      {
+        "x_cm": -14.246,
+        "y_cm": 0.585,
+        "frame_index": 4,
+        "score": 0.9
+      },
+      {
+        "x_cm": -19.612,
+        "y_cm": 9.757,
+        "frame_index": 0,
+        "score": 0.899
+      },
+      {
+        "x_cm": 19.417,
+        "y_cm": 9.757,
+        "frame_index": 29,
+        "score": 0.899
+      },
+      {
+        "x_cm": -6.147,
+        "y_cm": -7.806,
+        "frame_index": 10,
+        "score": 0.898
+      },
+      {
+        "x_cm": 6.05,
+        "y_cm": -7.806,
+        "frame_index": 19,
+        "score": 0.898
+      },
+      {
+        "x_cm": 15.319,
+        "y_cm": 2.634,
+        "frame_index": 26,
+        "score": 0.898
+      },
+      {
+        "x_cm": 10.05,
+        "y_cm": -4.391,
+        "frame_index": 22,
+        "score": 0.896
+      },
+      {
+        "x_cm": -7.416,
+        "y_cm": -6.83,
+        "frame_index": 9,
+        "score": 0.896
+      },
+      {
+        "x_cm": 7.22,
+        "y_cm": -6.83,
+        "frame_index": 20,
+        "score": 0.896
+      },
+      {
+        "x_cm": -15.514,
+        "y_cm": 2.634,
+        "frame_index": 3,
+        "score": 0.895
+      },
+      {
+        "x_cm": -10.245,
+        "y_cm": -4.391,
+        "frame_index": 7,
+        "score": 0.894
+      },
+      {
+        "x_cm": -0.781,
+        "y_cm": -9.66,
+        "frame_index": 14,
+        "score": 0.894
+      },
+      {
+        "x_cm": 0.585,
+        "y_cm": -9.66,
+        "frame_index": 15,
+        "score": 0.894
+      },
+      {
+        "x_cm": -16.978,
+        "y_cm": 4.781,
+        "frame_index": 2,
+        "score": 0.894
+      },
+      {
+        "x_cm": 16.783,
+        "y_cm": 4.781,
+        "frame_index": 27,
+        "score": 0.894
+      },
+      {
+        "x_cm": -18.246,
+        "y_cm": 7.318,
+        "frame_index": 1,
+        "score": 0.893
+      },
+      {
+        "x_cm": 18.051,
+        "y_cm": 7.318,
+        "frame_index": 28,
+        "score": 0.893
+      },
+      {
+        "x_cm": 3.22,
+        "y_cm": -9.074,
+        "frame_index": 17,
+        "score": 0.892
+      }
+    ],
+    "big_ball_center": {
+      "x_cm": 0.0,
+      "y_cm": 0.0
+    },
+    "winning_curve": "parabola",
+    "residuals": {
+      "parabola": 0.007024516141967691,
+      "hyperbola": 0.007129024800522816
+    },
+    "equation": {
+      "type": "parabola",
+      "coefficients": {
+        "a": 0.051,
+        "b": 0.01,
+        "c": -9.648
+      },
+      "display": "y = 0.051x\u00b2 + 0.010x + -9.648"
+    }
+  },
+  {
+    "run_id": "run_ZCXTEW_1774873867",
+    "session_code": "ZCXTEW",
+    "timestamp": "2026-03-30T12:31:07Z",
+    "coordinates": [
+      {
+        "x_cm": 4.684,
+        "y_cm": -8.586,
+        "frame_index": 18,
+        "score": 0.906
+      },
+      {
+        "x_cm": -4.879,
+        "y_cm": -8.586,
+        "frame_index": 11,
+        "score": 0.906
+      },
+      {
+        "x_cm": -2.147,
+        "y_cm": -9.367,
+        "frame_index": 13,
+        "score": 0.905
+      },
+      {
+        "x_cm": 1.951,
+        "y_cm": -9.367,
+        "frame_index": 16,
+        "score": 0.905
+      },
+      {
+        "x_cm": 14.051,
+        "y_cm": 0.585,
+        "frame_index": 25,
+        "score": 0.901
+      },
+      {
+        "x_cm": -11.514,
+        "y_cm": -2.927,
+        "frame_index": 6,
+        "score": 0.901
+      },
+      {
+        "x_cm": 11.318,
+        "y_cm": -2.927,
+        "frame_index": 23,
+        "score": 0.901
+      },
+      {
+        "x_cm": -14.246,
+        "y_cm": 0.585,
+        "frame_index": 4,
+        "score": 0.9
+      },
+      {
+        "x_cm": -19.612,
+        "y_cm": 9.757,
+        "frame_index": 0,
+        "score": 0.899
+      },
+      {
+        "x_cm": 19.417,
+        "y_cm": 9.757,
+        "frame_index": 29,
+        "score": 0.899
+      },
+      {
+        "x_cm": -6.147,
+        "y_cm": -7.806,
+        "frame_index": 10,
+        "score": 0.898
+      },
+      {
+        "x_cm": 6.05,
+        "y_cm": -7.806,
+        "frame_index": 19,
+        "score": 0.898
+      },
+      {
+        "x_cm": 15.319,
+        "y_cm": 2.634,
+        "frame_index": 26,
+        "score": 0.898
+      },
+      {
+        "x_cm": 10.05,
+        "y_cm": -4.391,
+        "frame_index": 22,
+        "score": 0.896
+      },
+      {
+        "x_cm": -7.416,
+        "y_cm": -6.83,
+        "frame_index": 9,
+        "score": 0.896
+      },
+      {
+        "x_cm": 7.22,
+        "y_cm": -6.83,
+        "frame_index": 20,
+        "score": 0.896
+      },
+      {
+        "x_cm": -15.514,
+        "y_cm": 2.634,
+        "frame_index": 3,
+        "score": 0.895
+      },
+      {
+        "x_cm": -10.245,
+        "y_cm": -4.391,
+        "frame_index": 7,
+        "score": 0.894
+      },
+      {
+        "x_cm": -0.781,
+        "y_cm": -9.66,
+        "frame_index": 14,
+        "score": 0.894
+      },
+      {
+        "x_cm": 0.585,
+        "y_cm": -9.66,
+        "frame_index": 15,
+        "score": 0.894
+      },
+      {
+        "x_cm": -16.978,
+        "y_cm": 4.781,
+        "frame_index": 2,
+        "score": 0.894
+      },
+      {
+        "x_cm": 16.783,
+        "y_cm": 4.781,
+        "frame_index": 27,
+        "score": 0.894
+      },
+      {
+        "x_cm": -18.246,
+        "y_cm": 7.318,
+        "frame_index": 1,
+        "score": 0.893
+      },
+      {
+        "x_cm": 18.051,
+        "y_cm": 7.318,
+        "frame_index": 28,
+        "score": 0.893
+      },
+      {
+        "x_cm": 3.22,
+        "y_cm": -9.074,
+        "frame_index": 17,
+        "score": 0.892
+      }
+    ],
+    "big_ball_center": {
+      "x_cm": 0.0,
+      "y_cm": 0.0
+    },
+    "winning_curve": "parabola",
+    "residuals": {
+      "parabola": 0.007024516141967691,
+      "hyperbola": 0.007129024800522905
+    },
+    "equation": {
+      "type": "parabola",
+      "coefficients": {
+        "a": 0.051,
+        "b": 0.01,
+        "c": -9.648
+      },
+      "display": "y = 0.051x\u00b2 + 0.010x + -9.648"
+    }
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "name": "Ball Tracker - Laptop",
+  "short_name": "TrackerViewer",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#161921",
+  "icons": []
+}
