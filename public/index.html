@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>CosmosCurves</title>
+    <style>
+      body {
+        background: #0f1117;
+        color: white;
+        font-family: system-ui, -apple-system, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+      }
+      .container {
+        text-align: center;
+      }
+      .options {
+        display: flex;
+        gap: 20px;
+        margin-top: 20px;
+      }
+      a {
+        color: #4FC3F7;
+        text-decoration: none;
+        padding: 10px 20px;
+        border: 1px solid #4FC3F7;
+        border-radius: 8px;
+        transition: all 0.2s;
+      }
+      a:hover {
+        background: #4FC3F7;
+        color: #0f1117;
+      }
+    </style>
+    <script>
+      // Automatic redirect if on mobile? Maybe.
+      // But let's just show options or redirect to laptop as default.
+      if (window.location.pathname === '/') {
+          // If the user wants a default, uncomment one of these:
+          // window.location.href = '/laptop/';
+      }
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>CosmosCurves</h1>
+      <p>Select your interface:</p>
+      <div class="options">
+        <a href="/laptop">💻 Laptop Controller</a>
+        <a href="/phone">📱 Phone Capture</a>
+      </div>
+    </div>
+  </body>
+</html>
