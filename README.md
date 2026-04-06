@@ -151,7 +151,6 @@ A two-device physics experiment tool for tracking and analyzing ball trajectorie
 ```
 cosmoscurves/
 ├── README.md                    # This file
-├── spec.md                      # Detailed specification
 ├── backend/                     # FastAPI Python backend
 │   ├── main.py                  # Main application entry point
 │   ├── calibration.py           # Calibration marker detection
@@ -163,19 +162,16 @@ cosmoscurves/
 │   └── data/                     # Runtime data storage
 │       ├── runs.json             # Persisted run data
 │       └── sessions/             # Session frame storage
-├── phone-pwa/                    # Phone capture app
-│   ├── index.html                # Main HTML structure
-│   ├── app.js                    # Camera capture and streaming
-│   ├── style.css                 # Mobile-optimized styling
-│   ├── manifest.json             # PWA manifest
-│   └── sw.js                      # Service worker (offline support)
-└── laptop-pwa/                   # Laptop control/results app
-    ├── index.html                # Main HTML structure
-    ├── app.js                    # Session management
-    ├── grid.js                   # Canvas visualization
-    ├── style.css                 # Desktop styling
-    ├── manifest.json             # PWA manifest
-    └── sw.js                      # Service worker (offline support)
+├── phone-pwa/                    # Phone capture app (Vite + React)
+│   ├── src/                     # Application source code
+│   ├── public/                  # Static assets & manifest
+│   ├── index.html               # Entry point
+│   └── vite.config.js           # Build configuration
+└── laptop-pwa/                   # Laptop control/results app (Vite + React)
+    ├── src/                     # Application source code
+    ├── public/                  # Static assets & manifest
+    ├── index.html               # Entry point
+    └── vite.config.js           # Build configuration
 ```
 
 ## API Endpoints

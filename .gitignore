@@ -1,0 +1,28 @@
+# Dependency directories
+node_modules/
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backend data
+backend/data/sessions/
+backend/*.log
+
+# Vite/Next.js/React build outputs
+dist/
+dist-ssr/
+.next/
+build/
+out/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo

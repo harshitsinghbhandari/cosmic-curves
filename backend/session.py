@@ -5,7 +5,8 @@ This module defines the session state and logic for experiment sessions.
 Each session tracks the progress, calibration, and recording status of a run.
 """
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 @dataclass
@@ -26,6 +27,7 @@ class SessionState:
         result: Final run data object after processing is complete.
         error_message: Optional error details if the pipeline fails.
         latest_preview_frame: The most recent JPEG frame for setup previews.
+        created_at: Timestamp when the session was created.
     """
     session_id: str
     session_code: str
@@ -39,6 +41,7 @@ class SessionState:
     result: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     latest_preview_frame: Optional[bytes] = None
+    created_at: float = field(default_factory=time.time)
 
 # Global in-memory session store
 sessions: Dict[str, SessionState] = {}
@@ -58,3 +61,18 @@ def get_session_by_code(code: str) -> Optional[SessionState]:
         if state.session_code == code_upper:
             return state
     return None
+
+def clean_old_sessions(max_age_hours: int = 4):
+    """
+    Remove sessions older than max_age_hours from the global store.
+    """
+    now = time.time()
+    max_age_seconds = max_age_hours * 3600
+    expired_ids = [
+        sid for sid, state in sessions.items() 
+        if now - state.created_at > max_age_seconds
+    ]
+    for sid in expired_ids:
+        del sessions[sid]
+    return len(expired_ids)
+

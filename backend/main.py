@@ -35,12 +35,13 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 
-from session import sessions, SessionState, get_session_by_code
+from session import sessions, SessionState, get_session_by_code, clean_old_sessions
 from storage import init_storage, get_all_runs, get_run_by_id, append_run
 from calibration import process_calibration_frame
 from detection import compute_hsv_ranges, detect_ball_in_frame, MIN_CONTOUR_AREA_PX, MIN_CIRCULARITY, MIN_DETECTION_SCORE, TARGET_FRAMES, MIN_VALID_FRAMES
 from curve_fitting import fit_curves
 from config import PHONE_PWA_URL
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(
@@ -53,13 +54,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("cosmoscurves")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    """
+    init_storage()
+    os.makedirs(SESSIONS_DATA_DIR, exist_ok=True)
+    logger.info("Storage initialized and backend started.")
+    yield
+    logger.info("Backend shutting down.")
+
 # Initialize FastAPI application with metadata
 app = FastAPI(
     title="Ball Trajectory Tracker",
     description="Backend API for tracking and analyzing ball trajectories in physics experiments",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -76,17 +89,6 @@ DATA_DIR = os.path.join(current_dir, "data")
 SESSIONS_DATA_DIR = os.path.join(DATA_DIR, "sessions")
 
 
-@app.on_event("startup")
-def startup_event():
-    """
-    Initialize storage directories on application startup.
-
-    Creates the data directory and sessions directory if they don't exist.
-    Also initializes the runs.json file if needed.
-    """
-    init_storage()
-    os.makedirs(SESSIONS_DATA_DIR, exist_ok=True)
-    logger.info("Storage initialized and backend started.")
 
 
 @app.post("/session/new")
@@ -114,6 +116,11 @@ def new_session():
         }
     """
     try:
+        # Periodic cleanup of old sessions
+        cleaned_count = clean_old_sessions()
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} expired sessions.")
+
         session_id = str(uuid.uuid4())
         session_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         
