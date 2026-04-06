@@ -11,7 +11,7 @@ PHONE_PWA_PORT = 3001
 
 # URLs
 # This is where the phone app is hosted (for QR code generation)
-PHONE_PWA_URL = f"http://{INTERNAL_IP}:{PHONE_PWA_PORT}"
+PHONE_PWA_URL = "https://cosmic-curves.vercel.app/phone"
 
-# This is the base URL for the backend itself (if needed by clients)
-BACKEND_URL = f"http://{INTERNAL_IP}:{BACKEND_PORT}"
+# This is the base URL for the backend itself
+BACKEND_URL = "https://cosmic-curves.onrender.com"

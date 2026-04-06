@@ -135,11 +135,8 @@ def new_session():
         sessions[session_id] = state
         
         base_url = PHONE_PWA_URL
-        capture_url = f"{base_url}/capture" if base_url.endswith("/capture") else f"{base_url}/index.html?session={session_code}"
-        
-        # In this project, the phone app is likely served at the root or /index.html
-        # If the user is serving it via a simple server, e.g., on port 3001
-        capture_url = f"{PHONE_PWA_URL}?session={session_code}"
+        # New unified URL structure: cosmic-curves.vercel.app/phone?session=XXXXXX
+        capture_url = f"{base_url}?session={session_code}"
         
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(capture_url)
