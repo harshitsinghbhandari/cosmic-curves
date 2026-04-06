@@ -1,0 +1,11 @@
+{
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/laptop/(.*)", "destination": "/laptop/$1" },
+    { "source": "/phone/(.*)", "destination": "/phone/$1" },
+    { "source": "/laptop", "destination": "/laptop/index.html" },
+    { "source": "/phone", "destination": "/phone/index.html" }
+  ]
+}
