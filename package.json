@@ -7,7 +7,9 @@
     "phone-pwa"
   ],
   "scripts": {
-    "build": "npm run build --prefix laptop-pwa && npm run build --prefix phone-pwa && rm -rf public && mkdir -p public && cp -rv laptop-pwa/dist public/laptop && cp -rv phone-pwa/dist public/phone && cp index.html public/",
-    "install-all": "npm install --prefix laptop-pwa && npm install --prefix phone-pwa"
+    "build": "npm run build -w laptop-pwa && npm run build -w phone-pwa && rm -rf public && mkdir -p public && cp -rv laptop-pwa/dist public/laptop && cp -rv phone-pwa/dist public/phone && cp index.html public/"
+  },
+  "devDependencies": {
+    "vite": "^8.0.1"
   }
 }
