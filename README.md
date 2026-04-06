@@ -60,8 +60,8 @@ A two-device physics experiment tool for tracking and analyzing ball trajectorie
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/cosmoscurves.git
-   cd cosmoscurves
+   git clone https://github.com/harshitsinghbhandari/cosmic-curves.git
+   cd cosmic-curves
    ```
 
 2. **Install Python dependencies**
