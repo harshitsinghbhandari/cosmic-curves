@@ -1538,3 +1538,175 @@ input:focus-visible {
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ===================================
+   Processing Screen with Debug View
+   =================================== */
+.processing-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.processing-header {
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.processing-header h2 {
+  margin-bottom: 12px;
+}
+
+.debug-config {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.debug-config span {
+  background: var(--bg-secondary);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+}
+
+.debug-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  overflow: hidden;
+}
+
+.debug-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.debug-frame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.debug-frame-thumb {
+  position: relative;
+  aspect-ratio: 4/3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.debug-frame-thumb.detected {
+  border-color: var(--accent-success);
+}
+
+.debug-frame-thumb.not-detected {
+  border-color: var(--accent-error);
+}
+
+.debug-frame-thumb:hover {
+  transform: scale(1.02);
+  box-shadow: var(--shadow-elevated);
+}
+
+.debug-frame-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.debug-frame-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.8);
+  font-size: 11px;
+}
+
+.debug-frame-info span {
+  color: var(--text-secondary);
+}
+
+.debug-frame-info .score-good {
+  color: var(--accent-success);
+  font-weight: 600;
+}
+
+.debug-frame-info .score-bad {
+  color: var(--accent-error);
+  font-weight: 600;
+}
+
+.no-debug-frames {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+.debug-logs-section {
+  flex-shrink: 0;
+  max-height: 180px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.debug-logs-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.debug-logs {
+  flex: 1;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.log-entry {
+  padding: 2px 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-entry.log-error {
+  color: var(--accent-error);
+  font-weight: 600;
+}

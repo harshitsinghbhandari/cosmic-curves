@@ -45,11 +45,13 @@ function App() {
   const [analysisTab, setAnalysisTab] = useState('stats');
   const [frameModalUrl, setFrameModalUrl] = useState(null);
   const [previewFrames, setPreviewFrames] = useState([]);
+  const [debugInfo, setDebugInfo] = useState({ logs: [], frame_results: [], debug_frame_indices: [] });
 
   const gridRef = useRef(null);
   const canvasRef = useRef(null);
   const pollTimerRef = useRef(null);
   const framesPollRef = useRef(null);
+  const debugPollRef = useRef(null);
 
   // Helper for API calls
   const api = async (path, method = "GET", body = null, headers = {}) => {
@@ -134,6 +136,29 @@ function App() {
       return () => {
         clearInterval(framesPollRef.current);
         setPreviewFrames([]);
+      };
+    }
+  }, [screen, sessionCode]);
+
+  // Poll for debug info during processing
+  useEffect(() => {
+    if (screen === 'processing' && sessionCode) {
+      const fetchDebug = async () => {
+        try {
+          const res = await api('/session/debug');
+          if (res && !res.error) {
+            setDebugInfo(res);
+          }
+        } catch (e) {
+          console.error('Failed to fetch debug info:', e);
+        }
+      };
+
+      fetchDebug();
+      debugPollRef.current = setInterval(fetchDebug, 1500);
+
+      return () => {
+        clearInterval(debugPollRef.current);
       };
     }
   }, [screen, sessionCode]);
@@ -582,18 +607,73 @@ function App() {
       )}
 
       {screen === 'processing' && (
-        <div id="processing-screen" className="screen active">
-          <h2>Analyzing Runs...</h2>
-          <div className="progress-container" role="progressbar" aria-valuenow={Math.round(progress.value * 100)} aria-valuemin="0" aria-valuemax="100">
-            <div className="progress-bar" style={{ width: `${progress.value * 100}%` }}></div>
+        <div id="processing-screen" className="screen active processing-layout">
+          <div className="processing-header">
+            <h2>Analyzing Runs...</h2>
+            <div className="progress-container" role="progressbar" aria-valuenow={Math.round(progress.value * 100)} aria-valuemin="0" aria-valuemax="100">
+              <div className="progress-bar" style={{ width: `${progress.value * 100}%` }}></div>
+            </div>
+            <p aria-live="polite">{progress.label}</p>
+            {error && (
+              <>
+                <p className="error" role="alert">{error}</p>
+                <button onClick={() => setScreen('record')} className="danger" aria-label="Return to recording to try again">Try Again</button>
+              </>
+            )}
+            {debugInfo.small_ball_bgr && (
+              <div className="debug-config">
+                <span>Target BGR: [{debugInfo.small_ball_bgr.join(', ')}]</span>
+                {debugInfo.px_per_cm && <span>Scale: {debugInfo.px_per_cm.toFixed(1)} px/cm</span>}
+              </div>
+            )}
           </div>
-          <p aria-live="polite">{progress.label}</p>
-          {error && (
-            <>
-              <p className="error" role="alert">{error}</p>
-              <button onClick={() => setScreen('record')} className="danger" aria-label="Return to recording to try again">Try Again</button>
-            </>
-          )}
+
+          {/* Debug Frames Grid */}
+          <div className="debug-section">
+            <h3>Debug Frames ({debugInfo.debug_frame_indices.length} frames)</h3>
+            {debugInfo.debug_frame_indices.length > 0 ? (
+              <div className="debug-frame-grid">
+                {debugInfo.debug_frame_indices.slice(-16).map((idx) => {
+                  const frameResult = debugInfo.frame_results.find(f => f.frame_index === idx);
+                  return (
+                    <div key={idx} className={`debug-frame-thumb ${frameResult?.detected ? 'detected' : 'not-detected'}`}
+                         onClick={() => setFrameModalUrl(`${API_BASE}/session/debug/frame/${idx}?session=${sessionCode}`)}>
+                      <img
+                        src={`${API_BASE}/session/debug/frame/${idx}?session=${sessionCode}`}
+                        alt={`Debug frame ${idx}`}
+                        loading="lazy"
+                      />
+                      <div className="debug-frame-info">
+                        <span>#{idx}</span>
+                        <span className={frameResult?.detected ? 'score-good' : 'score-bad'}>
+                          {frameResult?.detected ? `${(frameResult.score * 100).toFixed(0)}%` : 'No detect'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="no-debug-frames">
+                <Loader2 className="spinning" size={20} />
+                <span>Waiting for debug frames...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Debug Logs */}
+          <div className="debug-logs-section">
+            <h3>Processing Logs</h3>
+            <div className="debug-logs">
+              {debugInfo.logs.length > 0 ? (
+                debugInfo.logs.map((log, i) => (
+                  <div key={i} className={`log-entry ${log.includes('ERROR') ? 'log-error' : ''}`}>{log}</div>
+                ))
+              ) : (
+                <div className="log-entry">Waiting for logs...</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

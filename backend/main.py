@@ -499,8 +499,17 @@ def run_pipeline(session_code: str):
 
     try:
         logger.info(f"Starting pipeline analysis for session {session_code}")
+        state.add_log(f"Starting pipeline analysis")
         state.progress = 0.0
         state.progress_label = "Validating session..."
+        state.debug_logs = []  # Clear previous logs
+        state.all_frame_results = []  # Clear previous results
+
+        # Create debug frames directory
+        debug_dir = os.path.join(state.frames_dir, "..", "debug_frames")
+        os.makedirs(debug_dir, exist_ok=True)
+        state.debug_frames_dir = debug_dir
+        state.add_log(f"Debug frames dir: {debug_dir}")
 
         if not state.px_per_cm:
             raise ValueError("Calibration not completed")
@@ -509,8 +518,11 @@ def run_pipeline(session_code: str):
         if state.frame_count < MIN_VALID_FRAMES:
             raise ValueError(f"Only {state.frame_count} frames received — minimum {MIN_VALID_FRAMES} required")
 
+        state.add_log(f"Small ball BGR target: {state.small_ball_bgr}")
+        state.add_log(f"Calibration: {state.px_per_cm:.2f} px/cm")
         logger.info(f"Session {session_code}: Found {state.frame_count} frames on disk. Starting detection...")
-        state.progress_label = "Scoring frames..."
+        state.add_log(f"Found {state.frame_count} frames. Starting detection...")
+        state.progress_label = "Scoring frames & generating debug images..."
 
         frames = []
         all_frame_results = []  # Store ALL frame detection results for debug
@@ -527,6 +539,9 @@ def run_pipeline(session_code: str):
                 # Track the small ball using specialized distance masking with session color
                 res = distance_mask_detect_small_ball(image_bytes, target_bgr=state.small_ball_bgr)
 
+                # Also detect big ball
+                bb_res = hough_detect_big_ball(image_bytes)
+
                 # Store ALL results for debug view
                 frame_result = {
                     "frame_index": frame_idx,
@@ -534,9 +549,55 @@ def run_pipeline(session_code: str):
                     "score": round(res.get("score", 0), 3) if res.get("detected") else 0,
                     "x_px": res.get("x_px", 0),
                     "y_px": res.get("y_px", 0),
-                    "radius_px": res.get("radius_px", 0)
+                    "radius_px": res.get("radius_px", 0),
+                    "big_ball_detected": bb_res.get("detected", False),
+                    "big_ball_x": bb_res.get("x_px", 0),
+                    "big_ball_y": bb_res.get("y_px", 0),
                 }
                 all_frame_results.append(frame_result)
+
+                # Generate annotated debug frame for EVERY frame
+                np_arr = np.frombuffer(image_bytes, np.uint8)
+                img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if img is not None:
+                    h, w = img.shape[:2]
+
+                    # Draw big ball if detected (magenta)
+                    if bb_res.get("detected"):
+                        bb_x, bb_y = bb_res["x_px"], bb_res["y_px"]
+                        bb_r = bb_res.get("radius_px", 50)
+                        cv2.circle(img, (bb_x, bb_y), bb_r, (255, 0, 255), 3)
+                        cv2.putText(img, "BIG", (bb_x - 20, bb_y - bb_r - 10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+
+                    # Draw small ball detection (color based on score)
+                    if res.get("detected"):
+                        sb_x, sb_y = res["x_px"], res["y_px"]
+                        sb_r = res.get("radius_px", 15)
+                        score = res.get("score", 0)
+                        # Green if good, yellow if medium, red if poor
+                        if score > 0.6:
+                            color = (0, 255, 0)
+                        elif score > 0.4:
+                            color = (0, 255, 255)
+                        else:
+                            color = (0, 0, 255)
+                        cv2.circle(img, (sb_x, sb_y), sb_r + 5, color, 3)
+                        cv2.putText(img, f"SMALL {score:.2f}", (sb_x - 40, sb_y - sb_r - 10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    else:
+                        # No detection - draw red X
+                        cv2.putText(img, "NO SMALL BALL DETECTED", (10, 30),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+                    # Add frame info overlay
+                    info_text = f"Frame {frame_idx} | Score: {frame_result['score']}"
+                    cv2.putText(img, info_text, (10, h - 20),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                    # Save debug frame
+                    debug_path = os.path.join(debug_dir, f"debug_{frame_idx:04d}.jpg")
+                    cv2.imwrite(debug_path, img, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
                 if res.get("detected"):
                     frames.append({
@@ -550,6 +611,12 @@ def run_pipeline(session_code: str):
 
             state.progress = 0.1 + (0.3 * (i/len(filenames)))
 
+        # Store all frame results in session state for frontend access
+        state.all_frame_results = all_frame_results
+
+        detected_count = len([f for f in all_frame_results if f["detected"]])
+        state.add_log(f"Detection complete: {detected_count}/{len(all_frame_results)} frames detected small ball")
+
         state.progress = 0.4
         state.progress_label = "Selecting best frames..."
 
@@ -557,8 +624,14 @@ def run_pipeline(session_code: str):
         valid_frames = [f for f in frames if f["score"] > MIN_DETECTION_SCORE]
         selected_frames = valid_frames[:TARGET_FRAMES]
 
+        state.add_log(f"Frames with score > {MIN_DETECTION_SCORE}: {len(valid_frames)}")
+        state.add_log(f"Selected top frames: {len(selected_frames)}")
+
         if len(selected_frames) < MIN_VALID_FRAMES:
-            raise ValueError(f"Only {len(selected_frames)} frames passed detection threshold")
+            # Don't raise immediately - provide debug info
+            state.add_log(f"ERROR: Only {len(selected_frames)} frames passed threshold (need {MIN_VALID_FRAMES})")
+            state.add_log(f"Score distribution: {[f['score'] for f in all_frame_results[:20]]}")
+            raise ValueError(f"Only {len(selected_frames)} frames passed detection threshold. Check debug frames at /session/debug")
 
         logger.info(f"Session {session_code}: Selected {len(selected_frames)} high-quality frames for analysis.")
         state.progress = 0.5
@@ -892,6 +965,62 @@ def get_frame_by_index(index: int, session: str = None, x_session_code: str = He
 
         if not os.path.exists(filepath):
             raise ValueError(f"Frame {index} not found")
+
+        return FileResponse(filepath, media_type="image/jpeg")
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+@app.get("/session/debug")
+def get_debug_info(x_session_code: str = Header(...)):
+    """
+    Get debug info including logs, frame results, and available debug frames.
+    """
+    try:
+        state = get_session_by_code(x_session_code)
+        if not state:
+            raise ValueError("Session not found")
+
+        debug_frames = []
+        if state.debug_frames_dir and os.path.exists(state.debug_frames_dir):
+            debug_frames = sorted([
+                int(f.split("_")[1].split(".")[0])
+                for f in os.listdir(state.debug_frames_dir)
+                if f.startswith("debug_") and f.endswith(".jpg")
+            ])
+
+        return {
+            "logs": state.debug_logs,
+            "frame_results": state.all_frame_results,
+            "debug_frame_indices": debug_frames,
+            "small_ball_bgr": state.small_ball_bgr,
+            "px_per_cm": state.px_per_cm,
+            "status": state.status,
+            "progress": state.progress,
+            "progress_label": state.progress_label,
+            "error": state.error_message
+        }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+@app.get("/session/debug/frame/{index}")
+def get_debug_frame(index: int, session: str = None, x_session_code: str = Header(None)):
+    """
+    Serve an annotated debug frame image.
+    """
+    try:
+        code = session or x_session_code
+        if not code:
+            raise ValueError("Session code required")
+
+        state = get_session_by_code(code)
+        if not state or not state.debug_frames_dir:
+            raise ValueError("Debug frames not available")
+
+        filename = f"debug_{index:04d}.jpg"
+        filepath = os.path.join(state.debug_frames_dir, filename)
+
+        if not os.path.exists(filepath):
+            raise ValueError(f"Debug frame {index} not found")
 
         return FileResponse(filepath, media_type="image/jpeg")
     except Exception as e:

@@ -68,6 +68,20 @@ class SessionState:
     latest_preview_frame: Optional[bytes] = None
     created_at: float = field(default_factory=time.time)
 
+    # Debug state
+    debug_logs: List[str] = field(default_factory=list)
+    debug_frames_dir: Optional[str] = None
+    all_frame_results: List[Dict[str, Any]] = field(default_factory=list)
+
+    def add_log(self, message: str):
+        """Add a debug log entry with timestamp."""
+        import datetime
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        self.debug_logs.append(f"[{ts}] {message}")
+        # Keep only last 200 logs
+        if len(self.debug_logs) > 200:
+            self.debug_logs = self.debug_logs[-200:]
+
     def is_calibrated(self) -> bool:
         """Check if marker calibration is complete."""
         return (
