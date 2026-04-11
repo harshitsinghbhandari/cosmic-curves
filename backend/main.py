@@ -38,13 +38,14 @@ from reportlab.lib.units import cm
 
 from session import sessions, SessionState, get_session_by_code, clean_old_sessions
 from storage import init_storage, get_all_runs, get_run_by_id, append_run
-from calibration import process_calibration_frame
+from calibration import process_calibration_frame, process_calibration_with_markers
 from detection import (
-    compute_hsv_ranges, 
-    hough_detect_big_ball, 
-    distance_mask_detect_small_ball, 
-    MIN_DETECTION_SCORE, 
-    TARGET_FRAMES, 
+    compute_hsv_ranges,
+    hough_detect_big_ball,
+    distance_mask_detect_small_ball,
+    detect_color_markers,
+    MIN_DETECTION_SCORE,
+    TARGET_FRAMES,
     MIN_VALID_FRAMES
 )
 from curve_fitting import fit_curves, draw_physics_overlay
@@ -194,102 +195,264 @@ def get_calibration_sheet():
 
 @app.post("/calibrate")
 async def calibrate(request: Request, x_session_code: str = Header(None)):
+    """
+    Calibrate using two color markers.
+
+    Accepts JSON:
+    {
+        "marker_color": {"r": 255, "g": 100, "b": 50},
+        "marker_distance_cm": 10.0,
+        "image": "<base64 JPEG>"
+    }
+
+    Returns:
+    {
+        "ok": true,
+        "px_per_cm": 20.5,
+        "marker1": {"x_px": 100, "y_px": 200},
+        "marker2": {"x_px": 100, "y_px": 400},
+        "y_axis": [0, -1],
+        "x_axis": [1, 0]
+    }
+    """
     try:
         if not x_session_code:
             raise ValueError("X-Session-Code header missing")
         state = get_session_by_code(x_session_code)
         if not state:
             raise ValueError("Session not found")
-            
-        body = await request.body()
-        px_per_cm, marker_radius_px = process_calibration_frame(body)
-        state.px_per_cm = px_per_cm
-        
-        logger.info(f"Session {x_session_code} calibrated: {px_per_cm:.2f} px/cm")
-        return {"ok": True, "px_per_cm": px_per_cm, "marker_radius_px": marker_radius_px}
+
+        data = await request.json()
+        marker_color = data.get("marker_color", {})
+        marker_distance_cm = data.get("marker_distance_cm", 10.0)
+        image_base64 = data.get("image", "")
+
+        if not marker_color:
+            raise ValueError("marker_color is required")
+        if not image_base64:
+            raise ValueError("image (base64) is required")
+
+        # Convert RGB to BGR
+        marker_bgr = [
+            marker_color.get("b", 0),
+            marker_color.get("g", 0),
+            marker_color.get("r", 0)
+        ]
+
+        # Decode base64 image
+        image_bytes = base64.b64decode(image_base64)
+
+        # Process calibration with markers
+        result = process_calibration_with_markers(
+            image_bytes,
+            marker_bgr,
+            float(marker_distance_cm)
+        )
+
+        # Store calibration data in session
+        state.marker_color_bgr = marker_bgr
+        state.marker_distance_cm = float(marker_distance_cm)
+        state.marker1_px = result["marker1"]
+        state.marker2_px = result["marker2"]
+        state.y_axis_vector = result["y_axis"]
+        state.x_axis_vector = result["x_axis"]
+        state.px_per_cm = result["px_per_cm"]
+
+        logger.info(f"Session {x_session_code} calibrated with markers: {result['px_per_cm']:.2f} px/cm")
+
+        return {
+            "ok": True,
+            "px_per_cm": result["px_per_cm"],
+            "marker1": result["marker1"],
+            "marker2": result["marker2"],
+            "y_axis": result["y_axis"],
+            "x_axis": result["x_axis"]
+        }
     except Exception as e:
         logger.error(f"Calibration failed for session {x_session_code}: {str(e)}")
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
 @app.post("/setup")
 async def setup(request: Request, x_session_code: str = Header(None)):
+    """
+    Set the small ball color for detection.
+
+    Accepts JSON:
+    {"small_ball_color": {"r": 167, "g": 235, "b": 156}}
+
+    Returns:
+    {
+        "ok": true,
+        "small_ball_bgr": [156, 235, 167]
+    }
+    """
     try:
         if not x_session_code:
             raise ValueError("X-Session-Code header missing")
         state = get_session_by_code(x_session_code)
         if not state:
             raise ValueError("Session not found")
-            
-        data = await request.json()
-        small_ball_hsv = data.get("small_ball_hsv", {})
-        sheet_hsv = data.get("sheet_hsv", {})
-        big_ball_hsv = data.get("big_ball_hsv", {})
-        
-        small_ball_range = compute_hsv_ranges(small_ball_hsv)
-        big_ball_range = compute_hsv_ranges(big_ball_hsv)
-        
-        state.hsv_ranges = {
-            "small_ball_range": small_ball_range,
-            "big_ball_range": big_ball_range
-        }
-        
-        if not state.latest_preview_frame:
-            return {
-                "small_ball_range": small_ball_range,
-                "big_ball_range": big_ball_range,
-                "accuracy_score": None,
-                "accuracy_label": "Send a preview frame first",
-                "ok": True
-            }
-            
-        # Accuracy estimation using new distance masking
-        res = distance_mask_detect_small_ball(state.latest_preview_frame)
-        accuracy = 0
-        if res.get("detected"):
-            # Score is already normalized in detection.py
-            accuracy = min(100, int(res.get("score", 0) * 100))
-            
-        if accuracy < 50:
-            label = "Poor"
-        elif accuracy < 75:
-            label = "Fair"
-        elif accuracy < 90:
-            label = "Good"
-        else:
-            label = "Excellent"
 
-        logger.info(f"Setup completed for session {x_session_code}. Accuracy: {accuracy}% ({label})")
+        data = await request.json()
+        small_ball_color = data.get("small_ball_color", {})
+
+        if not small_ball_color:
+            raise ValueError("small_ball_color is required")
+
+        # Convert RGB to BGR
+        small_ball_bgr = [
+            small_ball_color.get("b", 0),
+            small_ball_color.get("g", 0),
+            small_ball_color.get("r", 0)
+        ]
+
+        state.small_ball_bgr = small_ball_bgr
+
+        logger.info(f"Setup completed for session {x_session_code}. Small ball BGR: {small_ball_bgr}")
         return {
-            "small_ball_range": small_ball_range,
-            "big_ball_range": big_ball_range,
-            "accuracy_score": accuracy,
-            "accuracy_label": label,
-            "ok": True
+            "ok": True,
+            "small_ball_bgr": small_ball_bgr
         }
-            
+
     except Exception as e:
         logger.error(f"Setup failed for session {x_session_code}: {str(e)}")
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
 @app.post("/detect_preview")
 async def detect_preview(request: Request, x_session_code: str = Header(None)):
+    """
+    Detect small ball in preview frame for live feedback.
+    Stores the frame for later use.
+    """
     try:
         if not x_session_code:
             raise ValueError("X-Session-Code header missing")
         state = get_session_by_code(x_session_code)
         if not state:
             raise ValueError("Session not found")
-            
+
         body = await request.body()
         state.latest_preview_frame = body
-        
-        if not state.hsv_ranges:
-            return {"detected": False}
-            
+
+        if not state.small_ball_bgr:
+            return {"detected": False, "message": "Small ball color not set"}
+
         # Use distance masking for live preview feedback
-        return distance_mask_detect_small_ball(body)
+        return distance_mask_detect_small_ball(body, target_bgr=state.small_ball_bgr)
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.post("/test_detection")
+async def test_detection(request: Request, x_session_code: str = Header(None)):
+    """
+    Test detection on current frame and return annotated image.
+
+    Returns:
+    {
+        "small_ball": {"detected": true, "x_px": 300, "y_px": 250, "score": 0.85},
+        "big_ball": {"detected": true, "x_px": 400, "y_px": 300},
+        "annotated_image": "<base64 JPEG>",
+        "success": true
+    }
+    """
+    try:
+        if not x_session_code:
+            raise ValueError("X-Session-Code header missing")
+        state = get_session_by_code(x_session_code)
+        if not state:
+            raise ValueError("Session not found")
+
+        body = await request.body()
+        state.latest_preview_frame = body
+
+        if not state.small_ball_bgr:
+            raise ValueError("Small ball color not set - complete setup first")
+        if not state.is_calibrated():
+            raise ValueError("Calibration not complete - detect markers first")
+
+        # Detect small ball
+        small_ball_result = distance_mask_detect_small_ball(body, target_bgr=state.small_ball_bgr)
+
+        # Detect big ball
+        big_ball_result = hough_detect_big_ball(body)
+
+        # Create annotated image
+        np_arr = np.frombuffer(body, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        if img is not None:
+            # Draw big ball (magenta circle + white cross = origin)
+            if big_ball_result.get("detected"):
+                bb_x = big_ball_result["x_px"]
+                bb_y = big_ball_result["y_px"]
+                bb_r = big_ball_result.get("radius_px", 50)
+
+                # Magenta circle around big ball
+                cv2.circle(img, (bb_x, bb_y), bb_r, (255, 0, 255), 3)
+
+                # White cross at center (origin marker)
+                cross_size = 20
+                cv2.line(img, (bb_x - cross_size, bb_y), (bb_x + cross_size, bb_y), (255, 255, 255), 2)
+                cv2.line(img, (bb_x, bb_y - cross_size), (bb_x, bb_y + cross_size), (255, 255, 255), 2)
+
+                # Draw coordinate axes from big ball center
+                axis_length = 100
+                if state.y_axis_vector and state.x_axis_vector:
+                    # Y-axis (green, pointing up)
+                    y_end_x = int(bb_x + state.y_axis_vector[0] * axis_length)
+                    y_end_y = int(bb_y + state.y_axis_vector[1] * axis_length)
+                    cv2.arrowedLine(img, (bb_x, bb_y), (y_end_x, y_end_y), (0, 255, 0), 2, tipLength=0.2)
+                    cv2.putText(img, "Y", (y_end_x + 5, y_end_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                    # X-axis (red, perpendicular)
+                    x_end_x = int(bb_x + state.x_axis_vector[0] * axis_length)
+                    x_end_y = int(bb_y + state.x_axis_vector[1] * axis_length)
+                    cv2.arrowedLine(img, (bb_x, bb_y), (x_end_x, x_end_y), (0, 0, 255), 2, tipLength=0.2)
+                    cv2.putText(img, "X", (x_end_x + 5, x_end_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+                # Origin label
+                cv2.putText(img, "(0,0)", (bb_x + 10, bb_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+            # Draw small ball (green circle)
+            if small_ball_result.get("detected"):
+                sb_x = small_ball_result["x_px"]
+                sb_y = small_ball_result["y_px"]
+                sb_r = small_ball_result.get("radius_px", 10)
+
+                # Score-based color
+                score = small_ball_result.get("score", 0.5)
+                if score > 0.75:
+                    color = (0, 255, 0)  # Green
+                elif score > 0.5:
+                    color = (0, 255, 255)  # Yellow
+                else:
+                    color = (0, 0, 255)  # Red
+
+                cv2.circle(img, (sb_x, sb_y), sb_r + 5, color, 3)
+
+                # Score label
+                cv2.putText(img, f"{score:.2f}", (sb_x + sb_r + 5, sb_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+            # Encode annotated image to base64
+            _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            annotated_base64 = base64.b64encode(buffer).decode('utf-8')
+        else:
+            annotated_base64 = ""
+
+        success = small_ball_result.get("detected", False) and big_ball_result.get("detected", False)
+
+        return {
+            "small_ball": small_ball_result,
+            "big_ball": big_ball_result,
+            "annotated_image": annotated_base64,
+            "success": success
+        }
+
+    except Exception as e:
+        logger.error(f"Test detection failed for session {x_session_code}: {str(e)}")
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
 
 @app.post("/frame")
 async def save_frame(request: Request, x_session_code: str = Header(None), x_frame_index: str = Header(None)):
@@ -334,8 +497,8 @@ def run_pipeline(session_code: str):
 
         if not state.px_per_cm:
             raise ValueError("Calibration not completed")
-        if not state.hsv_ranges:
-            raise ValueError("Color setup not completed")
+        if not state.small_ball_bgr:
+            raise ValueError("Small ball color not set")
         if state.frame_count < MIN_VALID_FRAMES:
             raise ValueError(f"Only {state.frame_count} frames received — minimum {MIN_VALID_FRAMES} required")
 
@@ -345,7 +508,6 @@ def run_pipeline(session_code: str):
         frames = []
         all_frame_results = []  # Store ALL frame detection results for debug
         filenames = sorted(os.listdir(state.frames_dir))
-        total_frames = len([f for f in filenames if f.endswith(".jpg")])
 
         for i, fname in enumerate(filenames):
             if fname.endswith(".jpg"):
@@ -355,8 +517,8 @@ def run_pipeline(session_code: str):
 
                 frame_idx = int(fname.split("_")[1].split(".")[0])
 
-                # Track the small ball using specialized distance masking
-                res = distance_mask_detect_small_ball(image_bytes)
+                # Track the small ball using specialized distance masking with session color
+                res = distance_mask_detect_small_ball(image_bytes, target_bgr=state.small_ball_bgr)
 
                 # Store ALL results for debug view
                 frame_result = {
@@ -380,58 +542,71 @@ def run_pipeline(session_code: str):
                     })
 
             state.progress = 0.1 + (0.3 * (i/len(filenames)))
-            
+
         state.progress = 0.4
-        state.progress_label = "Selection best frames..."
-        
+        state.progress_label = "Selecting best frames..."
+
         frames.sort(key=lambda x: x["score"], reverse=True)
         valid_frames = [f for f in frames if f["score"] > MIN_DETECTION_SCORE]
         selected_frames = valid_frames[:TARGET_FRAMES]
-        
+
         if len(selected_frames) < MIN_VALID_FRAMES:
             raise ValueError(f"Only {len(selected_frames)} frames passed detection threshold")
-            
+
         logger.info(f"Session {session_code}: Selected {len(selected_frames)} high-quality frames for analysis.")
         state.progress = 0.5
-        state.progress_label = "Extracting coordinates..."
-        
+        state.progress_label = "Detecting big ball (origin)..."
+
         # Get frame dimensions from first selected frame
         np_arr = np.fromfile(selected_frames[0]["filepath"], dtype=np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         frame_height, frame_width = img.shape[:2]
-        origin_x = frame_width / 2.0
-        origin_y = frame_height / 2.0
-        
-        coordinates = []
-        for f in selected_frames:
-            x_cm = (f["x_px"] - origin_x) / state.px_per_cm
-            y_cm = (origin_y - f["y_px"]) / state.px_per_cm # Y inverted!
-            coordinates.append({
-                "x_cm": round(x_cm, 3), 
-                "y_cm": round(y_cm, 3), 
-                "frame_index": f["frame_index"], 
-                "score": round(f["score"], 3)
-            })
-            
-        state.progress = 0.6
-        state.progress_label = "Detecting big ball..."
-        
-        best_bb_score = 0
+
+        # Detect big ball to use as origin (0,0)
         best_bb = None
         for f in selected_frames:
             with open(f["filepath"], "rb") as bf:
                 bb_bytes = bf.read()
-            # Localize the reference marker (big ball) using Hough Transform
             bb_res = hough_detect_big_ball(bb_bytes)
             if bb_res.get("detected"):
-                # Hough is very reliable for big objects, so we take the best one and break
                 best_bb = bb_res
                 break
-                
-        big_ball_center = {"x_cm": 0.0, "y_cm": 0.0}
+
+        # Define origin: big ball center if found, else frame center
         if best_bb:
-            big_ball_center["x_cm"] = round((best_bb["x_px"] - origin_x) / state.px_per_cm, 3)
-            big_ball_center["y_cm"] = round((origin_y - best_bb["y_px"]) / state.px_per_cm, 3)
+            origin_x = best_bb["x_px"]
+            origin_y = best_bb["y_px"]
+            logger.info(f"Session {session_code}: Big ball detected at ({origin_x}, {origin_y}) - using as origin")
+        else:
+            origin_x = frame_width / 2.0
+            origin_y = frame_height / 2.0
+            logger.warning(f"Session {session_code}: Big ball not detected - using frame center as origin")
+
+        state.progress = 0.6
+        state.progress_label = "Extracting coordinates..."
+
+        # Get axis vectors from calibration (if available)
+        y_axis = state.y_axis_vector if state.y_axis_vector else [0, -1]  # Default: up
+        x_axis = state.x_axis_vector if state.x_axis_vector else [1, 0]   # Default: right
+
+        # Transform coordinates using calibration axes with big ball as origin
+        coordinates = []
+        for f in selected_frames:
+            # Relative position from origin (in pixels)
+            rel_px_x = f["x_px"] - origin_x
+            rel_px_y = f["y_px"] - origin_y
+
+            # Project onto calibration axes (dot product)
+            # Note: Y is inverted because pixel Y increases downward
+            x_cm = (rel_px_x * x_axis[0] + rel_px_y * x_axis[1]) / state.px_per_cm
+            y_cm = -(rel_px_x * y_axis[0] + rel_px_y * y_axis[1]) / state.px_per_cm
+
+            coordinates.append({
+                "x_cm": round(x_cm, 3),
+                "y_cm": round(y_cm, 3),
+                "frame_index": f["frame_index"],
+                "score": round(f["score"], 3)
+            })
 
         state.progress = 0.7
         state.progress_label = "Fitting curves..."
@@ -440,31 +615,107 @@ def run_pipeline(session_code: str):
         # Perform curve fitting
         fit_result = fit_curves(coordinates)
         logger.info(f"Session {session_code}: Fit complete. Winning curve: {fit_result['winning_curve']}")
-        
-        # --- Visualization Generation ---
+
+        # --- Run directory and annotated frames ---
         run_id = f"run_{state.session_code}_{int(time.time())}"
+        run_dir = os.path.join(RUNS_DATA_DIR, run_id)
+        frames_output_dir = os.path.join(run_dir, "frames")
+        os.makedirs(frames_output_dir, exist_ok=True)
+
+        state.progress = 0.75
+        state.progress_label = "Generating annotated frames..."
+
+        # Select up to 30 frames evenly spaced for annotation
+        annotated_frame_urls = []
+        max_annotated = 30
+        step = max(1, len(selected_frames) // max_annotated)
+        frames_to_annotate = selected_frames[::step][:max_annotated]
+
+        for idx, f in enumerate(frames_to_annotate):
+            try:
+                frame_img = cv2.imread(f["filepath"])
+                if frame_img is None:
+                    continue
+
+                # Draw big ball (origin) - magenta circle + white cross
+                if best_bb:
+                    bb_x, bb_y = int(origin_x), int(origin_y)
+                    bb_r = best_bb.get("radius_px", 50)
+
+                    cv2.circle(frame_img, (bb_x, bb_y), bb_r, (255, 0, 255), 2)
+                    cross_size = 15
+                    cv2.line(frame_img, (bb_x - cross_size, bb_y), (bb_x + cross_size, bb_y), (255, 255, 255), 2)
+                    cv2.line(frame_img, (bb_x, bb_y - cross_size), (bb_x, bb_y + cross_size), (255, 255, 255), 2)
+
+                    # Draw X/Y axis arrows from origin
+                    axis_length = 80
+                    y_end = (int(bb_x + y_axis[0] * axis_length), int(bb_y + y_axis[1] * axis_length))
+                    x_end = (int(bb_x + x_axis[0] * axis_length), int(bb_y + x_axis[1] * axis_length))
+
+                    cv2.arrowedLine(frame_img, (bb_x, bb_y), y_end, (0, 255, 0), 2, tipLength=0.15)
+                    cv2.putText(frame_img, "Y", (y_end[0] + 5, y_end[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+                    cv2.arrowedLine(frame_img, (bb_x, bb_y), x_end, (0, 0, 255), 2, tipLength=0.15)
+                    cv2.putText(frame_img, "X", (x_end[0] + 5, x_end[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+                    cv2.putText(frame_img, "(0,0)", (bb_x + 10, bb_y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+                # Draw small ball - green circle
+                sb_x, sb_y = f["x_px"], f["y_px"]
+                sb_r = f.get("radius_px", 10)
+                score = f.get("score", 0.5)
+
+                if score > 0.75:
+                    color = (0, 255, 0)
+                elif score > 0.5:
+                    color = (0, 255, 255)
+                else:
+                    color = (0, 0, 255)
+
+                cv2.circle(frame_img, (sb_x, sb_y), sb_r + 5, color, 2)
+
+                # Coordinate label for small ball
+                coord_idx = next((i for i, c in enumerate(coordinates) if c["frame_index"] == f["frame_index"]), None)
+                if coord_idx is not None:
+                    coord = coordinates[coord_idx]
+                    label = f"({coord['x_cm']:.1f}, {coord['y_cm']:.1f})"
+                    cv2.putText(frame_img, label, (sb_x + sb_r + 5, sb_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
+
+                # Save annotated frame
+                frame_filename = f"frame_{f['frame_index']:04d}.jpg"
+                frame_path = os.path.join(frames_output_dir, frame_filename)
+                cv2.imwrite(frame_path, frame_img)
+                annotated_frame_urls.append(f"/data/runs/{run_id}/frames/{frame_filename}")
+
+            except Exception as frame_err:
+                logger.warning(f"Failed to annotate frame {f['frame_index']}: {frame_err}")
+
+        state.progress = 0.85
+        state.progress_label = "Generating visualization..."
+
+        # --- Main Visualization Generation ---
         try:
-            # Pick the middle frame for the overlay background
             middle_f = selected_frames[len(selected_frames)//2]
             img_bg = cv2.imread(middle_f["filepath"])
             if img_bg is not None:
                 draw_physics_overlay(img_bg, fit_result, origin_x, origin_y, state.px_per_cm, coordinates)
-                viz_path = os.path.join(RUNS_DATA_DIR, f"{run_id}.jpg")
+                viz_path = os.path.join(run_dir, "visualization.jpg")
                 cv2.imwrite(viz_path, img_bg)
                 logger.info(f"Session {session_code}: Trajectory visualization saved to {viz_path}")
         except Exception as k:
             logger.error(f"Failed to generate visualization for {session_code}: {str(k)}")
-        
+
         state.progress = 0.9
         state.progress_label = "Finalizing..."
-        
+
+        # Cleanup temporary frames
         try:
             shutil.rmtree(state.frames_dir)
         except Exception:
-            pass # ignore cleanup errors on disk
-            
+            pass
+
         state.progress = 1.0
-        state.progress_label = "Done ✓"
+        state.progress_label = "Done"
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -475,7 +726,7 @@ def run_pipeline(session_code: str):
         min_score = round(min(scores), 3) if scores else 0
         max_score = round(max(scores), 3) if scores else 0
 
-        # Get all curve fit details (not just winner)
+        # Get all curve fit details
         all_curves = {}
         for curve_type in ["parabola", "ellipse", "hyperbola"]:
             if curve_type in fit_result.get("residuals", {}):
@@ -484,13 +735,17 @@ def run_pipeline(session_code: str):
                     "is_winner": curve_type == fit_result["winning_curve"]
                 }
 
+        # Big ball center is now (0,0) by definition
+        big_ball_center = {"x_cm": 0.0, "y_cm": 0.0}
+
         run_data = {
             "run_id": run_id,
             "session_code": state.session_code,
             "timestamp": timestamp,
             "coordinates": coordinates,
             "big_ball_center": big_ball_center,
-            "visualization_url": f"/data/runs/{run_id}.jpg",
+            "visualization_url": f"/data/runs/{run_id}/visualization.jpg",
+            "annotated_frames": annotated_frame_urls,
             # Detailed stats
             "stats": {
                 "total_frames": len(all_frame_results),
@@ -503,7 +758,8 @@ def run_pipeline(session_code: str):
                 "max_score": max_score,
                 "px_per_cm": round(state.px_per_cm, 2),
                 "frame_dimensions": {"width": frame_width, "height": frame_height},
-                "origin": {"x": origin_x, "y": origin_y}
+                "origin": {"x": origin_x, "y": origin_y},
+                "origin_source": "big_ball" if best_bb else "frame_center"
             },
             # All frame detection results for debug view
             "all_frames": all_frame_results,
@@ -515,7 +771,7 @@ def run_pipeline(session_code: str):
         append_run(run_data)
         state.result = run_data
         state.status = "done"
-        logger.info(f"Session {session_code}: Pipeline complete. Run {run_data['run_id']} saved.")
+        logger.info(f"Session {session_code}: Pipeline complete. Run {run_data['run_id']} saved with {len(annotated_frame_urls)} annotated frames.")
 
     except Exception as e:
         state.status = "error"
@@ -577,9 +833,10 @@ def get_status(x_session_code: str = Header(None)):
         else:
             return {
                 "status": "idle",
-                "calibrated": state.px_per_cm is not None,
+                "calibrated": state.is_calibrated(),
                 "px_per_cm": state.px_per_cm,
-                "colors_set": state.hsv_ranges is not None
+                "colors_set": state.small_ball_bgr is not None,
+                "setup_complete": state.is_setup_complete()
             }
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
@@ -610,60 +867,70 @@ async def debug_test_pipeline(background_tasks: BackgroundTasks):
     try:
         # 1. Create a fresh session
         session_code = "TESTER"
-        if session_code in sessions:
+        session_id = f"debug_{session_code}"
+        frames_dir = os.path.join(SESSIONS_DATA_DIR, session_id, "frames")
+
+        if session_id in sessions:
             # Cleanup existing if present
-            try: shutil.rmtree(sessions[session_code].frames_dir)
-            except: pass
-            
-        sessions[session_code] = SessionState(session_code)
-        state = sessions[session_code]
-        
+            try:
+                shutil.rmtree(sessions[session_id].frames_dir)
+            except:
+                pass
+
+        os.makedirs(frames_dir, exist_ok=True)
+        state = SessionState(
+            session_id=session_id,
+            session_code=session_code,
+            frames_dir=frames_dir
+        )
+        sessions[session_id] = state
+
         # 2. Extract frames from the real video
         video_path = "IMG_0982.MOV"
         if not os.path.exists(video_path):
             return JSONResponse(status_code=404, content={"ok": False, "error": f"{video_path} not found"})
-            
+
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(25.0 * fps))
-        
+
         logger.info(f"Debug: Extracting 60 frames from {video_path} for testing...")
-        
+
         extracted = 0
         for i in range(60):
             ret, frame = cap.read()
-            if not ret: break
-            
+            if not ret:
+                break
+
             # Save frame to the session directory
             fname = f"frame_{i:04d}.jpg"
             filepath = os.path.join(state.frames_dir, fname)
             cv2.imwrite(filepath, frame)
             extracted += 1
-            
-        cap.release()
-        
-        if extracted < 10:
-             return {"ok": False, "error": "Insufficient frames extracted"}
+            state.frame_count = extracted
 
-        # 3. Simulate Setup Phase
-        state.px_per_cm = 20.0 # Standard guestimate
-        # Mocking the range structure to pass pipeline validation
-        state.hsv_ranges = {
-            "small_ball_range": {"h": [0,180], "s":[0,255], "v":[0,255]},
-            "big_ball_range": {"h": [0,180], "s":[0,255], "v":[0,255]}
-        }
+        cap.release()
+
+        if extracted < 10:
+            return {"ok": False, "error": "Insufficient frames extracted"}
+
+        # 3. Simulate Setup Phase with new fields
+        state.px_per_cm = 20.0  # Standard guestimate
+        state.y_axis_vector = [0, -1]  # Standard up direction
+        state.x_axis_vector = [1, 0]   # Standard right direction
+        state.small_ball_bgr = [156, 235, 167]  # Default green #a7eb9c
         state.status = "processing"
-        
+
         # 4. Fire the real production pipeline
         background_tasks.add_task(run_pipeline, session_code)
-        
+
         return {
-            "ok": True, 
-            "session_code": session_code, 
+            "ok": True,
+            "session_code": session_code,
             "frames_extracted": extracted,
             "message": "Automated pipeline triggered. Keep polling /status with header X-Session-Code: TESTER"
         }
-        
+
     except Exception as e:
         logger.error(f"Debug Pipeline Error: {str(e)}")
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})

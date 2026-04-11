@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CONFIG } from './config';
 import {
-  Camera,
-  Palette,
+  Crosshair,
+  Ruler,
+  CircleDot,
+  TestTube2,
   Video,
   Check,
   Loader2,
   Wifi,
   WifiOff,
-  CircleDot,
-  AlertTriangle
+  AlertTriangle,
+  X
 } from 'lucide-react';
 import './index.css';
 
@@ -19,8 +21,15 @@ const FRAME_INTERVAL_MS = Math.round(1000 / FPS);
 const JPEG_QUALITY = 0.85;
 const PREVIEW_INTERVAL_MS = 200;
 
-const COLOR_LABELS = ["Small Ball", "Background", "Big Ball"];
-const colorPrompts = ["Tap the small ball", "Tap the sheet/background", "Tap the big ball"];
+// Setup stages
+const STAGES = {
+  MARKER_TAP: 0,      // Tap on marker to sample color
+  MARKER_DISTANCE: 1, // Enter distance and detect markers
+  MARKERS_DETECTED: 2,// Show marker line overlay
+  SMALL_BALL_TAP: 3,  // Tap on small ball
+  TEST_DETECTION: 4,  // Test detection preview
+  READY: 5            // Ready to record
+};
 
 function App() {
   const [screen, setScreen] = useState('join');
@@ -29,17 +38,23 @@ function App() {
   const [error, setError] = useState('');
   const [setupPrompt, setSetupPrompt] = useState('Initializing camera...');
   const [setupResult, setSetupResult] = useState('');
-  const [setupStage, setSetupStage] = useState(0);
+  const [setupStage, setSetupStage] = useState(STAGES.MARKER_TAP);
   const [isRecording, setIsRecording] = useState(false);
   const [frameCount, setFrameCount] = useState(0);
   const [droppedFrames, setDroppedFrames] = useState(0);
   const [timer, setTimer] = useState('00:00');
-  const [sampledColors, setSampledColors] = useState([]);
-  const [accuracy, setAccuracy] = useState(null);
   const [ripple, setRipple] = useState(null);
   const [queueDepth, setQueueDepth] = useState(0);
   const [networkHealth, setNetworkHealth] = useState('good');
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+
+  // New state for marker-based setup
+  const [markerColor, setMarkerColor] = useState(null);
+  const [markerDistance, setMarkerDistance] = useState('10');
+  const [markerResult, setMarkerResult] = useState(null);
+  const [smallBallColor, setSmallBallColor] = useState(null);
+  const [testResult, setTestResult] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
@@ -51,7 +66,6 @@ function App() {
   const isSendingRef = useRef(false);
   const lastQueueCheckRef = useRef({ time: 0, depth: 0 });
 
-  // Parse URL for session code
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.has('session')) {
@@ -87,13 +101,13 @@ function App() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
-           const { videoWidth, videoHeight } = videoRef.current;
-           overlayCanvasRef.current.width = videoWidth;
-           overlayCanvasRef.current.height = videoHeight;
-           captureCanvasRef.current.width = videoWidth;
-           captureCanvasRef.current.height = videoHeight;
-           setSetupPrompt('Place calibration sheet and tap Capture');
-           setScreen('camera');
+          const { videoWidth, videoHeight } = videoRef.current;
+          overlayCanvasRef.current.width = videoWidth;
+          overlayCanvasRef.current.height = videoHeight;
+          captureCanvasRef.current.width = videoWidth;
+          captureCanvasRef.current.height = videoHeight;
+          setSetupPrompt('Tap on one of your markers');
+          setScreen('camera');
         };
       }
     } catch (e) {
@@ -120,45 +134,13 @@ function App() {
     return new Blob([ab], { type: 'image/jpeg' });
   };
 
-  const handleCalibrate = async () => {
-    try {
-      setSetupPrompt("Calibrating...");
-      const blob = captureJPEG();
-      const res = await api('/calibrate', 'POST', null, blob, { 'Content-Type': 'image/jpeg' });
-      setSetupResult(`Scale calibrated`);
-      setTimeout(() => {
-        setSetupStage(1);
-        setSetupPrompt(colorPrompts[0]);
-        startPreviewLoop();
-      }, 1500);
-    } catch (e) {
-      setError(e.message);
-      setSetupPrompt("Retry setup");
-    }
-  };
-
-  const startPreviewLoop = () => {
-    if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
-    previewIntervalRef.current = setInterval(async () => {
-      if (isRecording || screen !== 'camera') return;
-
-      try {
-        const blob = captureJPEG();
-        const res = await api('/detect_preview', 'POST', null, blob, { 'Content-Type': 'image/jpeg' });
-
-        const ctx = overlayCanvasRef.current.getContext('2d');
-        ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
-        if (res.detected) {
-          ctx.beginPath();
-          ctx.arc(res.x_px, res.y_px, res.radius_px, 0, Math.PI * 2);
-          ctx.lineWidth = 4;
-          if (res.score > 0.75) ctx.strokeStyle = '#4CAF50';
-          else if (res.score > 0.5) ctx.strokeStyle = '#FFEB3B';
-          else ctx.strokeStyle = '#F44336';
-          ctx.stroke();
-        }
-      } catch (e) { }
-    }, PREVIEW_INTERVAL_MS);
+  const captureBase64 = () => {
+    const video = videoRef.current;
+    const canvas = captureCanvasRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+    return dataUrl.split(',')[1];
   };
 
   const triggerHaptic = () => {
@@ -167,8 +149,34 @@ function App() {
     }
   };
 
-  const handleColorTap = (e) => {
-    if (setupStage === 0 || setupStage > 3) return;
+  const sampleColorAtPoint = (x, y) => {
+    const video = videoRef.current;
+    const captureCanvas = captureCanvasRef.current;
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+    const imgData = captureCtx.getImageData(
+      Math.max(0, Math.floor(x - 2)),
+      Math.max(0, Math.floor(y - 2)),
+      5, 5
+    ).data;
+
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < imgData.length; i += 4) {
+      r += imgData[i];
+      g += imgData[i + 1];
+      b += imgData[i + 2];
+    }
+    const count = imgData.length / 4;
+    r = Math.round(r / count);
+    g = Math.round(g / count);
+    b = Math.round(b / count);
+
+    return { r, g, b, rgb: `rgb(${r}, ${g}, ${b})` };
+  };
+
+  const handleCanvasTap = (e) => {
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
 
     const canvas = overlayCanvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -178,89 +186,188 @@ function App() {
     const tapX = e.clientX - rect.left;
     const tapY = e.clientY - rect.top;
 
-    // Trigger ripple animation
     setRipple({ x: tapX, y: tapY, id: Date.now() });
     setTimeout(() => setRipple(null), 600);
-
-    // Trigger haptic feedback
     triggerHaptic();
 
     const x = tapX * scaleX;
     const y = tapY * scaleY;
+    const color = sampleColorAtPoint(x, y);
 
-    const video = videoRef.current;
-    const captureCanvas = captureCanvasRef.current;
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-    const imgData = captureCtx.getImageData(Math.max(0, Math.floor(x - 2)), Math.max(0, Math.floor(y - 2)), 5, 5).data;
-
-    let r = 0, g = 0, b = 0;
-    for (let i = 0; i < imgData.length; i += 4) {
-      r += imgData[i]; g += imgData[i + 1]; b += imgData[i + 2];
+    if (setupStage === STAGES.MARKER_TAP) {
+      setMarkerColor(color);
+      setSetupStage(STAGES.MARKER_DISTANCE);
+      setSetupPrompt('Enter marker distance (cm)');
+      setSetupResult('Marker color sampled');
+    } else if (setupStage === STAGES.SMALL_BALL_TAP) {
+      setSmallBallColor(color);
+      submitSmallBallColor(color);
     }
-    const count = imgData.length / 4;
-    r /= count; g /= count; b /= count;
-
-    const rgbColor = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
-
-    r /= 255; g /= 255; b /= 255;
-    let max = Math.max(r, g, b), min = Math.min(r, g, b);
-    let h, s, v = max;
-    let d = max - min;
-    s = max === 0 ? 0 : d / max;
-    if (max === min) {
-      h = 0;
-    } else {
-      switch (max) {
-        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-        case g: h = (b - r) / d + 2; break;
-        case b: h = (r - g) / d + 4; break;
-      }
-      h /= 6;
-    }
-
-    const newColor = {
-      h: Math.round(h * 360),
-      s: Math.round(s * 255),
-      v: Math.round(v * 255),
-      rgb: rgbColor
-    };
-
-    setSampledColors(prev => {
-        const next = [...prev, newColor];
-        if (next.length < 3) {
-            setSetupPrompt(colorPrompts[next.length]);
-        } else {
-            submitColors(next);
-        }
-        return next;
-    });
-    setSetupStage(prev => prev + 1);
   };
 
-  const submitColors = async (colors) => {
-    setSetupPrompt("Analyzing colors...");
+  const handleDetectMarkers = async () => {
+    if (!markerColor || !markerDistance) return;
+
+    setIsLoading(true);
+    setError('');
+
     try {
+      const base64Image = captureBase64();
       const payload = {
-        small_ball_hsv: colors[0],
-        sheet_hsv: colors[1],
-        big_ball_hsv: colors[2]
+        marker_color: { r: markerColor.r, g: markerColor.g, b: markerColor.b },
+        marker_distance_cm: parseFloat(markerDistance),
+        image: base64Image
       };
-      const res = await api('/setup', 'POST', payload);
-      setAccuracy({ score: res.accuracy_score, label: res.accuracy_label });
-      setSetupStage(4);
+
+      const res = await api('/calibrate', 'POST', payload);
+
+      setMarkerResult(res);
+      setSetupStage(STAGES.MARKERS_DETECTED);
+      setSetupPrompt('Markers detected! Now tap the small ball');
+      setSetupResult(`Scale: ${res.px_per_cm.toFixed(1)} px/cm`);
+
+      drawMarkerOverlay(res);
+
+      setTimeout(() => {
+        setSetupStage(STAGES.SMALL_BALL_TAP);
+        setSetupPrompt('Tap on the small ball');
+      }, 2000);
+
     } catch (e) {
       setError(e.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const getAccuracyDisplay = () => {
-    if (!accuracy) return null;
-    const { score, label } = accuracy;
-    if (score >= 80) return { text: "Excellent detection quality", className: "quality-excellent" };
-    if (score >= 60) return { text: "Good detection quality", className: "quality-good" };
-    if (score >= 40) return { text: "Fair - try better lighting", className: "quality-fair" };
-    return { text: "Poor - improve lighting conditions", className: "quality-poor" };
+  const drawMarkerOverlay = (result) => {
+    const ctx = overlayCanvasRef.current.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
+
+    const { marker1, marker2, y_axis } = result;
+
+    ctx.strokeStyle = '#FF00FF';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([5, 5]);
+
+    ctx.beginPath();
+    ctx.arc(marker1.x_px, marker1.y_px, 30, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(marker2.x_px, marker2.y_px, 30, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(marker1.x_px, marker1.y_px);
+    ctx.lineTo(marker2.x_px, marker2.y_px);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    const midX = (marker1.x_px + marker2.x_px) / 2;
+    const midY = (marker1.y_px + marker2.y_px) / 2;
+    const arrowLength = 60;
+
+    ctx.strokeStyle = '#00FF00';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(midX, midY);
+    ctx.lineTo(midX + y_axis[0] * arrowLength, midY + y_axis[1] * arrowLength);
+    ctx.stroke();
+
+    const headLength = 10;
+    const angle = Math.atan2(y_axis[1], y_axis[0]);
+    ctx.beginPath();
+    ctx.moveTo(midX + y_axis[0] * arrowLength, midY + y_axis[1] * arrowLength);
+    ctx.lineTo(
+      midX + y_axis[0] * arrowLength - headLength * Math.cos(angle - Math.PI / 6),
+      midY + y_axis[1] * arrowLength - headLength * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.moveTo(midX + y_axis[0] * arrowLength, midY + y_axis[1] * arrowLength);
+    ctx.lineTo(
+      midX + y_axis[0] * arrowLength - headLength * Math.cos(angle + Math.PI / 6),
+      midY + y_axis[1] * arrowLength - headLength * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.stroke();
+
+    ctx.fillStyle = '#00FF00';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('Y', midX + y_axis[0] * arrowLength + 10, midY + y_axis[1] * arrowLength);
+  };
+
+  const submitSmallBallColor = async (color) => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const payload = { small_ball_color: { r: color.r, g: color.g, b: color.b } };
+      await api('/setup', 'POST', payload);
+
+      setSetupStage(STAGES.TEST_DETECTION);
+      setSetupPrompt('Small ball color set. Test detection?');
+      setSetupResult('Color sampled');
+      startPreviewLoop();
+
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTestDetection = async () => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const blob = captureJPEG();
+      const res = await api('/test_detection', 'POST', null, blob, { 'Content-Type': 'image/jpeg' });
+
+      setTestResult(res);
+
+      if (res.success) {
+        setSetupStage(STAGES.READY);
+        setSetupPrompt('Detection successful! Ready to record.');
+        setSetupResult('Both balls detected');
+      } else {
+        setError('Detection incomplete - adjust lighting or positions');
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const startPreviewLoop = () => {
+    if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
+    previewIntervalRef.current = setInterval(async () => {
+      if (isRecording || screen !== 'camera') return;
+      if (setupStage < STAGES.SMALL_BALL_TAP) return;
+
+      try {
+        const blob = captureJPEG();
+        const res = await api('/detect_preview', 'POST', null, blob, { 'Content-Type': 'image/jpeg' });
+
+        const ctx = overlayCanvasRef.current.getContext('2d');
+        ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
+
+        if (markerResult && setupStage >= STAGES.MARKERS_DETECTED) {
+          drawMarkerOverlay(markerResult);
+        }
+
+        if (res.detected) {
+          ctx.beginPath();
+          ctx.arc(res.x_px, res.y_px, res.radius_px || 20, 0, Math.PI * 2);
+          ctx.lineWidth = 4;
+          if (res.score > 0.75) ctx.strokeStyle = '#4CAF50';
+          else if (res.score > 0.5) ctx.strokeStyle = '#FFEB3B';
+          else ctx.strokeStyle = '#F44336';
+          ctx.stroke();
+        }
+      } catch (e) { }
+    }, PREVIEW_INTERVAL_MS);
   };
 
   const processQueue = async () => {
@@ -343,7 +450,6 @@ function App() {
       setIsRecording(false);
       setScreen('processing');
 
-      // Wait for queue to empty with progress updates
       while (sendQueueRef.current.length > 0 || isSendingRef.current) {
         setUploadProgress(prev => ({
           ...prev,
@@ -371,13 +477,11 @@ function App() {
   };
 
   const getStepperStage = () => {
-    if (setupStage === 0) return 0;
-    if (setupStage >= 1 && setupStage <= 3) return 1;
-    if (setupStage === 4) return 2;
-    return 0;
+    if (setupStage <= STAGES.MARKER_DISTANCE) return 0;
+    if (setupStage <= STAGES.SMALL_BALL_TAP) return 1;
+    if (setupStage <= STAGES.TEST_DETECTION) return 2;
+    return 3;
   };
-
-  const accuracyInfo = getAccuracyDisplay();
 
   return (
     <div id="app">
@@ -392,10 +496,9 @@ function App() {
             placeholder="ABC123"
             value={joinInput}
             onChange={(e) => setJoinInput(e.target.value)}
-            aria-label="Session code input"
           />
-          <button id="btn-join" className="primary" onClick={handleJoin} aria-label="Join session">Join Session</button>
-          {error && <div id="join-error" className="error" role="alert">{error}</div>}
+          <button id="btn-join" className="primary" onClick={handleJoin}>Join Session</button>
+          {error && <div id="join-error" className="error">{error}</div>}
         </div>
       )}
 
@@ -405,7 +508,7 @@ function App() {
           <canvas
             ref={overlayCanvasRef}
             id="overlayCanvas"
-            onPointerDown={handleColorTap}
+            onPointerDown={handleCanvasTap}
           ></canvas>
           {ripple && (
             <div
@@ -419,25 +522,31 @@ function App() {
 
       {screen === 'camera' && (
         <div id="setup-ui" className="overlay-ui">
-          {/* Stepper */}
-          <div className="setup-stepper" role="navigation" aria-label="Setup progress">
+          <div className="setup-stepper">
             <div className={`step ${getStepperStage() >= 0 ? 'active' : ''} ${getStepperStage() > 0 ? 'completed' : ''}`}>
               <div className="step-icon">
-                {getStepperStage() > 0 ? <Check size={16} aria-hidden="true" /> : <Camera size={16} aria-hidden="true" />}
+                {getStepperStage() > 0 ? <Check size={16} /> : <Crosshair size={16} />}
               </div>
-              <span className="step-label">Calibrate</span>
+              <span className="step-label">Markers</span>
             </div>
             <div className="step-connector"></div>
             <div className={`step ${getStepperStage() >= 1 ? 'active' : ''} ${getStepperStage() > 1 ? 'completed' : ''}`}>
               <div className="step-icon">
-                {getStepperStage() > 1 ? <Check size={16} aria-hidden="true" /> : <Palette size={16} aria-hidden="true" />}
+                {getStepperStage() > 1 ? <Check size={16} /> : <CircleDot size={16} />}
               </div>
-              <span className="step-label">Colors</span>
+              <span className="step-label">Ball</span>
             </div>
             <div className="step-connector"></div>
-            <div className={`step ${getStepperStage() >= 2 ? 'active' : ''}`}>
+            <div className={`step ${getStepperStage() >= 2 ? 'active' : ''} ${getStepperStage() > 2 ? 'completed' : ''}`}>
               <div className="step-icon">
-                <Video size={16} aria-hidden="true" />
+                {getStepperStage() > 2 ? <Check size={16} /> : <TestTube2 size={16} />}
+              </div>
+              <span className="step-label">Test</span>
+            </div>
+            <div className="step-connector"></div>
+            <div className={`step ${getStepperStage() >= 3 ? 'active' : ''}`}>
+              <div className="step-icon">
+                <Video size={16} />
               </div>
               <span className="step-label">Record</span>
             </div>
@@ -446,50 +555,170 @@ function App() {
           <div className="prompt-box">
             <p id="setup-prompt">{setupPrompt}</p>
 
-            {setupStage === 0 && (
-                <div id="setup-calib-step">
-                    <button id="btn-capture-calib" className="primary" onClick={handleCalibrate} aria-label="Capture calibration marker">
-                      <Camera size={18} aria-hidden="true" />
-                      Capture Marker
-                    </button>
-                </div>
-            )}
-
-            {(setupStage > 0 && setupStage < 4) && (
-                <div id="setup-color-step">
-                    <div className="color-swatches" aria-label="Sampled colors">
-                      {COLOR_LABELS.map((label, idx) => (
-                        <div key={label} className={`color-swatch-item ${idx < sampledColors.length ? 'sampled' : ''}`}>
-                          <div
-                            className="swatch-circle"
-                            style={{ backgroundColor: sampledColors[idx]?.rgb || 'transparent' }}
-                          >
-                            {idx < sampledColors.length && <Check size={12} aria-hidden="true" />}
-                          </div>
-                          <span className="swatch-label">{label}</span>
-                        </div>
-                      ))}
+            {setupStage === STAGES.MARKER_TAP && (
+              <div id="setup-marker-tap">
+                <p className="hint-text">Point camera at markers and tap one</p>
+                {markerColor && (
+                  <div className="color-preview">
+                    <div className="swatch-circle" style={{ backgroundColor: markerColor.rgb }}>
+                      <Check size={12} />
                     </div>
-                </div>
-            )}
-
-            {setupResult && <p id="setup-result" className="success" aria-live="polite"><Check size={16} aria-hidden="true" /> {setupResult}</p>}
-            {error && <p id="setup-error" className="error" role="alert"><AlertTriangle size={16} aria-hidden="true" /> {error}</p>}
-
-            {setupStage === 4 && accuracyInfo && (
-              <div className={`quality-indicator ${accuracyInfo.className}`} aria-live="polite">
-                <div className="quality-bar">
-                  <div className="quality-fill" style={{ width: `${accuracy.score}%` }}></div>
-                </div>
-                <span className="quality-text">{accuracyInfo.text}</span>
+                    <span>Marker color</span>
+                  </div>
+                )}
               </div>
             )}
 
-            {setupStage === 4 && (
-                <button id="btn-start-record" className="primary" onClick={() => setScreen('record')} aria-label="Go to recording screen">
-                  <Video size={18} aria-hidden="true" />
-                  Go to Record
+            {setupStage === STAGES.MARKER_DISTANCE && (
+              <div id="setup-marker-distance">
+                <div className="color-preview">
+                  <div className="swatch-circle sampled" style={{ backgroundColor: markerColor?.rgb }}>
+                    <Check size={12} />
+                  </div>
+                  <span>Marker color</span>
+                </div>
+                <div className="distance-input-group">
+                  <Ruler size={18} />
+                  <input
+                    type="number"
+                    value={markerDistance}
+                    onChange={(e) => setMarkerDistance(e.target.value)}
+                    placeholder="10"
+                    className="distance-input"
+                  />
+                  <span className="unit">cm</span>
+                </div>
+                <button
+                  className="primary"
+                  onClick={handleDetectMarkers}
+                  disabled={isLoading || !markerDistance}
+                >
+                  {isLoading ? <Loader2 size={18} className="spinning" /> : <Crosshair size={18} />}
+                  Detect Markers
                 </button>
+              </div>
+            )}
+
+            {setupStage === STAGES.MARKERS_DETECTED && (
+              <div id="setup-markers-detected">
+                <div className="detection-success">
+                  <Check size={24} className="success-icon" />
+                  <span>{setupResult}</span>
+                </div>
+              </div>
+            )}
+
+            {setupStage === STAGES.SMALL_BALL_TAP && (
+              <div id="setup-small-ball">
+                {smallBallColor ? (
+                  <div className="color-preview">
+                    <div className="swatch-circle sampled" style={{ backgroundColor: smallBallColor.rgb }}>
+                      <Check size={12} />
+                    </div>
+                    <span>Ball color</span>
+                  </div>
+                ) : (
+                  <p className="hint-text">Tap on the small tracking ball</p>
+                )}
+              </div>
+            )}
+
+            {setupStage === STAGES.TEST_DETECTION && (
+              <div id="setup-test-detection">
+                <div className="color-swatches-row">
+                  <div className="color-preview compact">
+                    <div className="swatch-circle sampled" style={{ backgroundColor: markerColor?.rgb }}></div>
+                    <span>Marker</span>
+                  </div>
+                  <div className="color-preview compact">
+                    <div className="swatch-circle sampled" style={{ backgroundColor: smallBallColor?.rgb }}></div>
+                    <span>Ball</span>
+                  </div>
+                </div>
+                <button
+                  className="primary"
+                  onClick={handleTestDetection}
+                  disabled={isLoading}
+                >
+                  {isLoading ? <Loader2 size={18} className="spinning" /> : <TestTube2 size={18} />}
+                  Test Detection
+                </button>
+              </div>
+            )}
+
+            {setupStage === STAGES.READY && (
+              <div id="setup-ready">
+                <div className="detection-success">
+                  <Check size={24} className="success-icon" />
+                  <span>Detection verified!</span>
+                </div>
+                <button className="primary" onClick={() => setScreen('record')}>
+                  <Video size={18} />
+                  Start Recording
+                </button>
+              </div>
+            )}
+
+            {setupResult && setupStage > STAGES.MARKER_TAP && setupStage < STAGES.READY && (
+              <p id="setup-result" className="success">
+                <Check size={16} /> {setupResult}
+              </p>
+            )}
+
+            {error && (
+              <p id="setup-error" className="error">
+                <AlertTriangle size={16} /> {error}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {testResult && testResult.annotated_image && setupStage === STAGES.TEST_DETECTION && (
+        <div className="test-preview-modal">
+          <div className={`test-preview-content ${testResult.success ? 'success' : 'failure'}`}>
+            <button className="close-btn" onClick={() => setTestResult(null)}>
+              <X size={20} />
+            </button>
+            <img
+              src={`data:image/jpeg;base64,${testResult.annotated_image}`}
+              alt="Detection preview"
+              className="preview-image"
+            />
+            <div className="preview-status">
+              {testResult.success ? (
+                <>
+                  <Check size={20} className="status-icon success" />
+                  <span>Both balls detected!</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle size={20} className="status-icon error" />
+                  <span>Detection incomplete</span>
+                </>
+              )}
+            </div>
+            <div className="preview-details">
+              <div className={`detail-item ${testResult.small_ball?.detected ? 'detected' : 'not-detected'}`}>
+                Small Ball: {testResult.small_ball?.detected ? 'Found' : 'Not found'}
+              </div>
+              <div className={`detail-item ${testResult.big_ball?.detected ? 'detected' : 'not-detected'}`}>
+                Big Ball: {testResult.big_ball?.detected ? 'Found' : 'Not found'}
+              </div>
+            </div>
+            {testResult.success && (
+              <button className="primary" onClick={() => {
+                setTestResult(null);
+                setSetupStage(STAGES.READY);
+                setSetupPrompt('Detection successful! Ready to record.');
+              }}>
+                Continue
+              </button>
+            )}
+            {!testResult.success && (
+              <button className="secondary" onClick={() => setTestResult(null)}>
+                Try Again
+              </button>
             )}
           </div>
         </div>
@@ -497,33 +726,28 @@ function App() {
 
       {screen === 'record' && (
         <div id="record-ui" className="overlay-ui record-layout">
-          <div className="recording-stats-panel" aria-live="polite">
+          <div className="recording-stats-panel">
             <div className="stat-item timer">
               <span className="stat-value">{timer}</span>
             </div>
             <div className="stat-item">
-              <CircleDot size={14} className="stat-icon" aria-hidden="true" />
+              <CircleDot size={14} className="stat-icon" />
               <span className="stat-value">{frameCount}</span>
               <span className="stat-label">frames</span>
             </div>
             <div className="stat-item">
-              <Loader2 size={14} className={`stat-icon ${queueDepth > 0 ? 'spinning' : ''}`} aria-hidden="true" />
+              <Loader2 size={14} className={`stat-icon ${queueDepth > 0 ? 'spinning' : ''}`} />
               <span className="stat-value">{queueDepth}</span>
               <span className="stat-label">buffered</span>
             </div>
-            <div className={`network-indicator ${networkHealth}`} aria-label={`Network status: ${networkHealth}`}>
-              {networkHealth === 'good' ? (
-                <Wifi size={14} aria-hidden="true" />
-              ) : (
-                <WifiOff size={14} aria-hidden="true" />
-              )}
+            <div className={`network-indicator ${networkHealth}`}>
+              {networkHealth === 'good' ? <Wifi size={14} /> : <WifiOff size={14} />}
             </div>
           </div>
           <button
             id="btn-record-action"
             className={`record-btn ${isRecording ? 'recording' : ''}`}
             onClick={toggleRecording}
-            aria-label={isRecording ? "Stop recording" : "Start recording"}
           ></button>
           <p className="hint">Tap button to {isRecording ? "stop" : "start"} recording</p>
         </div>
@@ -531,9 +755,9 @@ function App() {
 
       {screen === 'processing' && (
         <div id="processing-ui" className="overlay-ui full-center dark-bg">
-          <Loader2 size={48} className="spinning" aria-hidden="true" />
+          <Loader2 size={48} className="spinning" />
           <h2>Uploading Frames</h2>
-          <div className="upload-progress" aria-live="polite">
+          <div className="upload-progress">
             <div className="upload-progress-bar">
               <div
                 className="upload-progress-fill"
@@ -545,11 +769,11 @@ function App() {
             </p>
           </div>
           <div className={`upload-health ${networkHealth}`}>
-            {networkHealth === 'good' && <><Wifi size={14} aria-hidden="true" /> Good</>}
-            {networkHealth === 'slow' && <><WifiOff size={14} aria-hidden="true" /> Slow</>}
-            {networkHealth === 'stalled' && <><AlertTriangle size={14} aria-hidden="true" /> Stalled</>}
+            {networkHealth === 'good' && <><Wifi size={14} /> Good</>}
+            {networkHealth === 'slow' && <><WifiOff size={14} /> Slow</>}
+            {networkHealth === 'stalled' && <><AlertTriangle size={14} /> Stalled</>}
           </div>
-          <button onClick={() => setScreen('camera')} className="secondary" style={{marginTop: 20}} aria-label="Return to camera">Finish</button>
+          <button onClick={() => setScreen('camera')} className="secondary" style={{ marginTop: 20 }}>Finish</button>
         </div>
       )}
 

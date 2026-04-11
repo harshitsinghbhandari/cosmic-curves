@@ -43,6 +43,7 @@ function App() {
   const [zoomLevel, setZoomLevel] = useState(100);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisTab, setAnalysisTab] = useState('stats');
+  const [frameModalUrl, setFrameModalUrl] = useState(null);
 
   const gridRef = useRef(null);
   const canvasRef = useRef(null);
@@ -226,6 +227,9 @@ function App() {
           <button className={analysisTab === 'viz' ? 'active' : ''} onClick={() => setAnalysisTab('viz')}>
             <Image size={14} /> Visualization
           </button>
+          <button className={analysisTab === 'annotated' ? 'active' : ''} onClick={() => setAnalysisTab('annotated')}>
+            <Frame size={14} /> Annotated ({selectedRun?.annotated_frames?.length || 0})
+          </button>
         </div>
 
         <div className="analysis-content">
@@ -390,7 +394,44 @@ function App() {
               )}
             </div>
           )}
+
+          {analysisTab === 'annotated' && (
+            <div className="annotated-gallery">
+              {selectedRun.annotated_frames && selectedRun.annotated_frames.length > 0 ? (
+                <div className="gallery-grid">
+                  {selectedRun.annotated_frames.map((url, i) => (
+                    <div
+                      key={i}
+                      className="gallery-thumb"
+                      onClick={() => setFrameModalUrl(`${API_BASE}${url}`)}
+                    >
+                      <img
+                        src={`${API_BASE}${url}`}
+                        alt={`Annotated frame ${i + 1}`}
+                        loading="lazy"
+                      />
+                      <span className="thumb-label">Frame {i + 1}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="no-viz">No annotated frames available</div>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Frame Modal */}
+        {frameModalUrl && (
+          <div className="frame-modal-overlay" onClick={() => setFrameModalUrl(null)}>
+            <div className="frame-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close-btn" onClick={() => setFrameModalUrl(null)}>
+                <XIcon size={24} />
+              </button>
+              <img src={frameModalUrl} alt="Annotated frame full view" />
+            </div>
+          </div>
+        )}
       </div>
     );
   };
