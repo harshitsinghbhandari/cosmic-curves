@@ -1,12 +1,5 @@
-"""
-Curve Fitting Module
-
-This module provides functions for fitting different mathematical curves
-(parabolas, ellipses, hyperbolas) to a set of coordinates.
-Uses numpy for polynomial fitting and SVD for conic section fitting.
-"""
-
 import numpy as np
+import cv2
 from scipy.optimize import least_squares
 
 def fit_curves(coordinates: list) -> dict:
@@ -88,12 +81,65 @@ def fit_curves(coordinates: list) -> dict:
             }
         }
     
-    # Determine the winning model by the lowest residual
-    residuals = {k: v["residual"] for k, v in results.items()}
-    winner = min(residuals, key=residuals.get)
+
+def draw_physics_overlay(image, result, origin_x, origin_y, px_per_cm, coordinates):
+    """
+    Draw the mathematical curve and detected points on the image.
     
-    return {
-        "winning_curve": winner,
-        "residuals": residuals,
-        "equation": results[winner]["equation"]
-    }
+    Args:
+        image: OpenCV image array (BGR)
+        result: Result dict from fit_curves()
+        origin_x, origin_y: Origin coordinates in pixels
+        px_per_cm: Calibration factor
+        coordinates: List of {'x_cm', 'y_cm'} dicts
+    """
+    h, w = image.shape[:2]
+    color_curve = (255, 0, 255) # Magenta for the math
+    color_pts = (0, 255, 0)     # Green for detections
+    
+    # 1. Draw the detected points
+    for p in coordinates:
+        px = int(p['x_cm'] * px_per_cm + origin_x)
+        py = int(origin_y - p['y_cm'] * px_per_cm)
+        if 0 <= px < w and 0 <= py < h:
+            cv2.circle(image, (px, py), 4, color_pts, -1)
+
+    # 2. Draw the fitted curve
+    winner = result['winning_curve']
+    eq = result['equation']['coefficients']
+    
+    # Scan X across the entire image width
+    x_range_cm = np.linspace(-origin_x / px_per_cm, (w - origin_x) / px_per_cm, 2000)
+    
+    if winner == 'parabola':
+        a, b, c = eq['a'], eq['b'], eq['c']
+        for x in x_range_cm:
+            y = a * x**2 + b * x + c
+            px = int(x * px_per_cm + origin_x)
+            py = int(origin_y - y * px_per_cm)
+            if 0 <= px < w and 0 <= py < h:
+                cv2.circle(image, (px, py), 1, color_curve, -1)
+    
+    else: # Conic (Ellipse/Hyperbola)
+        # Solve implicit: Cy² + (Bx + E)y + (Ax² + Dx + F) = 0
+        A, B, C, D, E, F = eq['A'], eq['B'], eq['C'], eq['D'], eq['E'], eq['F']
+        for x in x_range_cm:
+            qa = C
+            qb = B * x + E
+            qc = A * x**2 + D * x + F
+            
+            det = qb**2 - 4 * qa * qc
+            if det >= 0:
+                sqrt_det = np.sqrt(det)
+                for sign in [1, -1]:
+                    y = (-qb + sign * sqrt_det) / (2 * qa)
+                    px = int(x * px_per_cm + origin_x)
+                    py = int(origin_y - y * px_per_cm)
+                    if 0 <= px < w and 0 <= py < h:
+                        cv2.circle(image, (px, py), 1, color_curve, -1)
+
+    # Add labels
+    cv2.putText(image, f"Model: {winner.upper()}", (30, 40), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0, color_curve, 2)
+    cv2.putText(image, result['equation']['display'], (30, 75), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_curve, 1)

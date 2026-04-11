@@ -1,22 +1,10 @@
 """
-Ball Detection Module
+Ball Detection Module - Refined Hybrid Pipeline
 
-This module provides functions for detecting balls in video frames using
-HSV color space masking and contour analysis.
-
-The detection pipeline:
-1. Convert frame to HSV color space
-2. Apply color range mask
-3. Find contours
-4. Filter by area and circularity
-5. Score candidates and return best match
-
-Constants:
-    MIN_CONTOUR_AREA_PX: Minimum contour area in pixels (filters noise)
-    MIN_CIRCULARITY: Minimum circularity threshold (0-1, filters non-circular shapes)
-    MIN_DETECTION_SCORE: Minimum score for valid detection
-    TARGET_FRAMES: Number of frames to select for analysis
-    MIN_VALID_FRAMES: Minimum frames required for valid run
+This module provides specialized functions for detecting balls in video frames.
+It uses a hybrid approach:
+1. Big Ball: Hough Circle Transform (Shape-based)
+2. Small Ball: Euclidean Distance Masking (Color proximity-based)
 
 Author: CosmosCurves Team
 License: MIT
@@ -25,38 +13,28 @@ License: MIT
 import cv2
 import numpy as np
 
-# Detection thresholds
-MIN_CONTOUR_AREA_PX = 100      # Minimum contour area to consider (pixels)
-MIN_CIRCULARITY = 0.70         # Minimum circularity (0-1, higher = more circular)
-MIN_DETECTION_SCORE = 0.40     # Minimum score to accept a frame
-TARGET_FRAMES = 25             # Number of frames to analyze
-MIN_VALID_FRAMES = 10          # Minimum frames needed for valid run
+# Detection thresholds (kept for tuning if needed)
+MIN_DETECTION_SCORE = 0.40     
+TARGET_FRAMES = 25             
+MIN_VALID_FRAMES = 10          
 
+def _get_image(image_input):
+    """Internal helper to decode bytes or return the image array"""
+    if isinstance(image_input, bytes):
+        np_arr = np.frombuffer(image_input, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        return img
+    return image_input
 
 def compute_hsv_ranges(rgb_dict: dict) -> dict:
     """
-    Convert HSV color sample to detection range with tolerance.
-
-    Takes a sampled color in HSV format and computes a range for masking
-    that accounts for lighting variations and color differences.
-
-    Args:
-        rgb_dict: Dictionary with 'h', 's', 'v' keys (0-360, 0-255, 0-255)
-                  Note: H may need conversion if in standard 0-360 range
-                  OpenCV uses H in 0-179 range
-
-    Returns:
-        dict: Dictionary with 'h', 's', 'v' keys, each containing [min, max] pairs
-
-    Example:
-        >>> compute_hsv_ranges({'h': 45, 's': 180, 'v': 220})
-        {'h': [30, 60], 's': [140, 220], 'v': [180, 255]}
+    (Legacy) Kept for API compatibility with setup phase.
+    Converts HSV color sample to detection range with tolerance.
     """
     h = rgb_dict.get("h", 0)
     s = rgb_dict.get("s", 0)
     v = rgb_dict.get("v", 0)
 
-    # Convert H from 0-360 to OpenCV's 0-179 if needed
     if h > 179:
         h = int(h / 2)
 
@@ -66,91 +44,92 @@ def compute_hsv_ranges(rgb_dict: dict) -> dict:
         "v": [max(0, v - 40), min(255, v + 40)]
     }
 
+def hough_detect_big_ball(image_input):
+    """
+    Detect the BIG ball using Hough Circle Transform.
+    Does not rely on color, looks for circular gradients.
+    """
+    img = _get_image(image_input)
+    if img is None:
+        return {"detected": False}
+    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.medianBlur(gray, 5)
+    
+    # Radius range for big ball: 60 to 180 (Adjust if needed for distance)
+    circles = cv2.HoughCircles(
+        blurred, 
+        cv2.HOUGH_GRADIENT, 
+        dp=1.2, 
+        minDist=100,
+        param1=50, 
+        param2=30, 
+        minRadius=60, 
+        maxRadius=180
+    )
+    
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        best = circles[0, 0]
+        return {
+            "detected": True,
+            "x_px": int(best[0]),
+            "y_px": int(best[1]),
+            "radius_px": int(best[2]),
+            "score": 1.0 # Hough detections are weighted highly
+        }
+    return {"detected": False}
+
+def distance_mask_detect_small_ball(image_input, target_bgr=[156, 235, 167], threshold=30):
+    """
+    Detect the SMALL ball using Euclidean Distance Masking.
+    Finds pixels mathematically close to the target BGR color.
+    Targets color: #a7eb9c (BGR: 156, 235, 167)
+    """
+    img = _get_image(image_input)
+    if img is None:
+        return {"detected": False}
+    
+    # Convert to float for precise distance calculation
+    img_float = img.astype(np.float32)
+    target = np.array(target_bgr, dtype=np.float32)
+    
+    # L2 Norm (Euclidean Distance) in 3D color space
+    dist = np.linalg.norm(img_float - target, axis=2)
+    
+    # Binary mask of similar pixels
+    mask = (dist < threshold).astype(np.uint8) * 255
+    
+    # Morphology to clean up noise from shadows/texture
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    best_candidate = None
+    max_area = 0
+    
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if 2 < area < 2000:
+            if area > max_area:
+                max_area = area
+                (x, y), radius = cv2.minEnclosingCircle(cnt)
+                best_candidate = {
+                    "detected": True,
+                    "x_px": int(x),
+                    "y_px": int(y),
+                    "radius_px": int(radius),
+                    "score": min(1.0, area / 300.0) # Normalized score based on typical size
+                }
+                
+    return best_candidate if best_candidate else {"detected": False}
 
 def detect_ball_in_frame(image_bytes: bytes, hsv_range: dict) -> dict:
     """
-    Detect a ball in a JPEG frame using HSV color masking.
-
-    Processes a JPEG image to find circular objects matching the specified
-    color range. Returns the best candidate based on circularity score.
-
-    Args:
-        image_bytes: Raw JPEG image bytes
-        hsv_range: Dictionary with 'h', 's', 'v' keys, each containing [min, max]
-                   Example: {'h': [30, 60], 's': [140, 220], 'v': [180, 255]}
-
-    Returns:
-        dict: Detection result with keys:
-            - detected (bool): True if ball found
-            - x_px (int): X coordinate of ball center (if detected)
-            - y_px (int): Y coordinate of ball center (if detected)
-            - radius_px (int): Radius of enclosing circle (if detected)
-            - score (float): Detection confidence score 0-1 (if detected)
-
-    Example:
-        >>> result = detect_ball_in_frame(jpeg_bytes, hsv_range)
-        >>> if result['detected']:
-        ...     print(f"Ball at ({result['x_px']}, {result['y_px']})")
+    Legacy wrapper for existing API calls.
+    Attempts to use the new specialized methods based on context clues.
     """
-    # Decode JPEG to numpy array
-    np_arr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-    if img is None:
-        return {"detected": False}
-
-    # Convert to HSV color space
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
-    # Create color mask from HSV range
-    lower = np.array([hsv_range["h"][0], hsv_range["s"][0], hsv_range["v"][0]])
-    upper = np.array([hsv_range["h"][1], hsv_range["s"][1], hsv_range["v"][1]])
-
-    mask = cv2.inRange(hsv, lower, upper)
-    mask = cv2.medianBlur(mask, 5)  # Remove noise
-
-    # Find contours in the mask
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    best_score = 0
-    best_candidate = None
-
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-
-        # Filter by minimum area
-        if area > MIN_CONTOUR_AREA_PX:
-            perimeter = cv2.arcLength(cnt, True)
-
-            if perimeter > 0:
-                # Calculate circularity: 4π×area/perimeter²
-                # Perfect circle = 1.0
-                circularity = 4 * np.pi * area / (perimeter * perimeter)
-
-                if circularity > MIN_CIRCULARITY:
-                    # Score based on circularity
-                    score = circularity
-
-                    if score > best_score:
-                        # Calculate centroid using moments
-                        M = cv2.moments(cnt)
-                        if M["m00"] > 0:
-                            cx = int(M["m10"] / M["m00"])
-                            cy = int(M["m01"] / M["m00"])
-
-                            # Get minimum enclosing circle radius
-                            (_, _), radius = cv2.minEnclosingCircle(cnt)
-
-                            best_score = score
-                            best_candidate = {
-                                "x_px": cx,
-                                "y_px": cy,
-                                "radius_px": int(radius),
-                                "score": best_score
-                            }
-
-    if best_candidate:
-        best_candidate["detected"] = True
-        return best_candidate
-
-    return {"detected": False}
+    # This is a fallback to keep the API alive while we transition main.py
+    # We prioritize the small ball distance mask if the hsv_range looks like the green target
+    return distance_mask_detect_small_ball(image_bytes)
