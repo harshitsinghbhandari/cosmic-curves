@@ -372,7 +372,7 @@ function App() {
 
   // Handle box size change
   const handleBoxSizeChange = (delta) => {
-    setBoxSize(prev => Math.max(30, Math.min(60, prev + delta)));
+    setBoxSize(prev => Math.max(10, Math.min(60, prev + delta)));
     triggerHaptic();
   };
 

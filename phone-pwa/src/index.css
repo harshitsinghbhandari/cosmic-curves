@@ -202,9 +202,11 @@ button.danger {
 
 /* Camera Container */
 #camera-container {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  position: relative;
   background: var(--bg-primary);
 }
 
@@ -1340,24 +1342,24 @@ button.success-pulse {
    =================================== */
 .sidebar {
   position: absolute;
-  right: 12px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   z-index: 30;
-  padding: 16px 8px;
+  padding: 12px 6px;
   background: rgba(0, 0, 0, 0.3);
-  border-radius: 24px;
+  border-radius: 20px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
 
 .sidebar-btn {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.15);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1369,8 +1371,8 @@ button.success-pulse {
   transition: all 150ms ease;
   padding: 0;
   margin: 0;
-  min-width: 44px;
-  max-width: 44px;
+  min-width: 40px;
+  max-width: 40px;
 }
 
 .sidebar-btn:active {
@@ -1406,15 +1408,15 @@ button.success-pulse {
 .stage-dots {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .stage-dots .dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.2);
   transition: all 200ms ease;
@@ -1443,12 +1445,12 @@ button.success-pulse {
    =================================== */
 .bottom-info {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
-  right: 70px;
+  bottom: 12px;
+  left: 12px;
+  right: 60px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   z-index: 25;
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
