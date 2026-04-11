@@ -61,6 +61,8 @@ function App() {
   const [boxSize, setBoxSize] = useState(50);
   const [isDraggingBox, setIsDraggingBox] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [capturedImage, setCapturedImage] = useState(null); // Still image for selection
+  const [previewColor, setPreviewColor] = useState(null);
 
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
@@ -157,6 +159,29 @@ function App() {
     }
   };
 
+  // Capture still image for color selection
+  const captureStillImage = () => {
+    const video = videoRef.current;
+    const canvas = captureCanvasRef.current;
+    if (!video || !canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    setCapturedImage(dataUrl);
+
+    // Center the box on captured image
+    setBoxPos({ x: canvas.width / 2, y: canvas.height / 2 });
+    triggerHaptic();
+  };
+
+  // Retake - clear captured image
+  const retakeImage = () => {
+    setCapturedImage(null);
+    setPreviewColor(null);
+    triggerHaptic();
+  };
+
   const sampleColorAtPoint = (x, y) => {
     const video = videoRef.current;
     const captureCanvas = captureCanvasRef.current;
@@ -183,28 +208,34 @@ function App() {
     return { r, g, b, rgb: `rgb(${r}, ${g}, ${b})` };
   };
 
-  // Sample average color from the selection box
-  const sampleColorFromBox = () => {
-    const video = videoRef.current;
-    const canvas = overlayCanvasRef.current;
-    const captureCanvas = captureCanvasRef.current;
-    if (!video || !canvas || !captureCanvas) return null;
+  // Sample average color from the selection box on captured image
+  const sampleColorFromBox = useCallback(() => {
+    if (!capturedImage) return null;
 
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+    // Create temp canvas to sample from captured image
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    const img = new Image();
+    img.src = capturedImage;
 
-    // Calculate box bounds in canvas coordinates
+    tempCanvas.width = img.width || captureCanvasRef.current?.width || 800;
+    tempCanvas.height = img.height || captureCanvasRef.current?.height || 600;
+
+    // Draw captured image to temp canvas
+    tempCtx.drawImage(img, 0, 0);
+
+    // Calculate box bounds
     const halfSize = boxSize / 2;
     const x1 = Math.max(0, Math.floor(boxPos.x - halfSize));
     const y1 = Math.max(0, Math.floor(boxPos.y - halfSize));
-    const x2 = Math.min(captureCanvas.width, Math.floor(boxPos.x + halfSize));
-    const y2 = Math.min(captureCanvas.height, Math.floor(boxPos.y + halfSize));
+    const x2 = Math.min(tempCanvas.width, Math.floor(boxPos.x + halfSize));
+    const y2 = Math.min(tempCanvas.height, Math.floor(boxPos.y + halfSize));
 
     const width = x2 - x1;
     const height = y2 - y1;
     if (width <= 0 || height <= 0) return null;
 
-    const imgData = captureCtx.getImageData(x1, y1, width, height).data;
+    const imgData = tempCtx.getImageData(x1, y1, width, height).data;
 
     let r = 0, g = 0, b = 0;
     for (let i = 0; i < imgData.length; i += 4) {
@@ -218,18 +249,27 @@ function App() {
     b = Math.round(b / count);
 
     return { r, g, b, rgb: `rgb(${r}, ${g}, ${b})` };
-  };
+  }, [capturedImage, boxPos, boxSize]);
 
-  // Draw the selection box overlay
+  // Update preview color when box moves
+  useEffect(() => {
+    if (capturedImage && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP)) {
+      const color = sampleColorFromBox();
+      setPreviewColor(color);
+    }
+  }, [capturedImage, boxPos, boxSize, setupStage, sampleColorFromBox]);
+
+  // Draw the selection box overlay (only when captured image exists)
   const drawBoxOverlay = useCallback(() => {
     const canvas = overlayCanvasRef.current;
-    const captureCanvas = captureCanvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !captureCanvas || !video) return;
+    if (!canvas || !capturedImage) return;
     const ctx = canvas.getContext('2d');
 
     // Only draw box during marker selection stages
     if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const halfSize = boxSize / 2;
     const x = boxPos.x - halfSize;
@@ -237,7 +277,7 @@ function App() {
 
     // Draw box outline with glow effect
     ctx.shadowColor = '#00FF00';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 15;
     ctx.strokeStyle = '#00FF00';
     ctx.lineWidth = 3;
     ctx.strokeRect(x, y, boxSize, boxSize);
@@ -245,66 +285,23 @@ function App() {
 
     // Draw crosshair
     ctx.beginPath();
-    ctx.moveTo(boxPos.x - 15, boxPos.y);
-    ctx.lineTo(boxPos.x + 15, boxPos.y);
-    ctx.moveTo(boxPos.x, boxPos.y - 15);
-    ctx.lineTo(boxPos.x, boxPos.y + 15);
+    ctx.moveTo(boxPos.x - 20, boxPos.y);
+    ctx.lineTo(boxPos.x + 20, boxPos.y);
+    ctx.moveTo(boxPos.x, boxPos.y - 20);
+    ctx.lineTo(boxPos.x, boxPos.y + 20);
     ctx.stroke();
+  }, [boxPos, boxSize, setupStage, capturedImage]);
 
-    // Sample and show current color preview
-    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-
-    const x1 = Math.max(0, Math.floor(boxPos.x - halfSize));
-    const y1 = Math.max(0, Math.floor(boxPos.y - halfSize));
-    const sampleWidth = Math.min(boxSize, captureCanvas.width - x1);
-    const sampleHeight = Math.min(boxSize, captureCanvas.height - y1);
-
-    if (sampleWidth > 0 && sampleHeight > 0) {
-      const imgData = captureCtx.getImageData(x1, y1, sampleWidth, sampleHeight).data;
-      let r = 0, g = 0, b = 0;
-      for (let i = 0; i < imgData.length; i += 4) {
-        r += imgData[i];
-        g += imgData[i + 1];
-        b += imgData[i + 2];
-      }
-      const count = imgData.length / 4;
-      r = Math.round(r / count);
-      g = Math.round(g / count);
-      b = Math.round(b / count);
-
-      // Draw color swatch above the box
-      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-      ctx.fillRect(x, y - 35, 30, 25);
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x, y - 35, 30, 25);
-
-      // Draw size label next to swatch
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText(`${boxSize}px`, x + 36, y - 18);
-    }
-  }, [boxPos, boxSize, setupStage]);
-
-  // Update box overlay continuously
+  // Update box overlay when box moves (only when image is captured)
   useEffect(() => {
-    if (screen !== 'camera') return;
+    if (!capturedImage) return;
     if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
-
-    const interval = setInterval(() => {
-      const canvas = overlayCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawBoxOverlay();
-    }, 50);
-
-    return () => clearInterval(interval);
-  }, [screen, setupStage, drawBoxOverlay]);
+    drawBoxOverlay();
+  }, [capturedImage, boxPos, boxSize, setupStage, drawBoxOverlay]);
 
   // Handle touch/mouse start for box dragging
   const handlePointerDown = (e) => {
+    if (!capturedImage) return; // Only drag when image is captured
     if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
 
     const canvas = overlayCanvasRef.current;
@@ -323,7 +320,7 @@ function App() {
 
   // Handle touch/mouse move for box dragging
   const handlePointerMove = (e) => {
-    if (!isDraggingBox) return;
+    if (!isDraggingBox || !capturedImage) return;
     if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
 
     const canvas = overlayCanvasRef.current;
@@ -355,13 +352,17 @@ function App() {
 
   // Sample color from box and proceed
   const handleSampleFromBox = () => {
-    const color = sampleColorFromBox();
+    const color = previewColor || sampleColorFromBox();
     if (!color) {
       setError('Failed to sample color');
       return;
     }
 
     triggerHaptic();
+
+    // Clear captured image for next stage
+    setCapturedImage(null);
+    setPreviewColor(null);
 
     if (setupStage === STAGES.MARKER_TAP) {
       setMarkerColor(color);
@@ -673,7 +674,12 @@ function App() {
 
       {(screen === 'camera' || screen === 'record' || screen === 'processing') && (
         <div id="camera-container" style={{ display: 'block' }}>
-          <video ref={videoRef} id="videoElement" autoPlay playsInline muted></video>
+          {/* Show captured image when available, otherwise show live video */}
+          {capturedImage && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP) ? (
+            <img src={capturedImage} alt="Captured" className="captured-image" />
+          ) : (
+            <video ref={videoRef} id="videoElement" autoPlay playsInline muted></video>
+          )}
           <canvas
             ref={overlayCanvasRef}
             id="overlayCanvas"
@@ -730,16 +736,39 @@ function App() {
 
             {setupStage === STAGES.MARKER_TAP && (
               <div id="setup-marker-tap">
-                <p className="hint-text">Drag the green box over a marker</p>
-                <div className="box-controls">
-                  <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
-                  <span className="box-size-label">{boxSize}px</span>
-                  <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
-                </div>
-                <button className="primary sample-btn" onClick={handleSampleFromBox}>
-                  <Crosshair size={18} />
-                  Sample Color
-                </button>
+                {!capturedImage ? (
+                  <>
+                    <p className="hint-text">Point camera at your markers</p>
+                    <button className="primary capture-btn" onClick={captureStillImage}>
+                      <Crosshair size={18} />
+                      Capture Image
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="hint-text">Drag box over a marker</p>
+                    {previewColor && (
+                      <div className="color-preview-bar">
+                        <div className="preview-swatch" style={{ backgroundColor: previewColor.rgb }}></div>
+                        <span className="preview-label">Selected: RGB({previewColor.r}, {previewColor.g}, {previewColor.b})</span>
+                      </div>
+                    )}
+                    <div className="box-controls">
+                      <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
+                      <span className="box-size-label">{boxSize}px</span>
+                      <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
+                    </div>
+                    <div className="action-buttons">
+                      <button className="secondary" onClick={retakeImage}>
+                        Retake
+                      </button>
+                      <button className="primary" onClick={handleSampleFromBox}>
+                        <Check size={18} />
+                        Confirm Color
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -784,16 +813,39 @@ function App() {
 
             {setupStage === STAGES.SMALL_BALL_TAP && (
               <div id="setup-small-ball">
-                <p className="hint-text">Drag the green box over the small ball</p>
-                <div className="box-controls">
-                  <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
-                  <span className="box-size-label">{boxSize}px</span>
-                  <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
-                </div>
-                <button className="primary sample-btn" onClick={handleSampleFromBox} disabled={isLoading}>
-                  {isLoading ? <Loader2 size={18} className="spinning" /> : <CircleDot size={18} />}
-                  Sample Ball Color
-                </button>
+                {!capturedImage ? (
+                  <>
+                    <p className="hint-text">Point camera at the small ball</p>
+                    <button className="primary capture-btn" onClick={captureStillImage}>
+                      <CircleDot size={18} />
+                      Capture Image
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="hint-text">Drag box over the small ball</p>
+                    {previewColor && (
+                      <div className="color-preview-bar">
+                        <div className="preview-swatch" style={{ backgroundColor: previewColor.rgb }}></div>
+                        <span className="preview-label">Selected: RGB({previewColor.r}, {previewColor.g}, {previewColor.b})</span>
+                      </div>
+                    )}
+                    <div className="box-controls">
+                      <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
+                      <span className="box-size-label">{boxSize}px</span>
+                      <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
+                    </div>
+                    <div className="action-buttons">
+                      <button className="secondary" onClick={retakeImage}>
+                        Retake
+                      </button>
+                      <button className="primary" onClick={handleSampleFromBox} disabled={isLoading}>
+                        {isLoading ? <Loader2 size={18} className="spinning" /> : <Check size={18} />}
+                        Confirm Color
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
