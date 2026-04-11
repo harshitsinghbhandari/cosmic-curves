@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import qrcode
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
@@ -38,8 +39,15 @@ from reportlab.lib.units import cm
 from session import sessions, SessionState, get_session_by_code, clean_old_sessions
 from storage import init_storage, get_all_runs, get_run_by_id, append_run
 from calibration import process_calibration_frame
-from detection import compute_hsv_ranges, detect_ball_in_frame, MIN_CONTOUR_AREA_PX, MIN_CIRCULARITY, MIN_DETECTION_SCORE, TARGET_FRAMES, MIN_VALID_FRAMES
-from curve_fitting import fit_curves
+from detection import (
+    compute_hsv_ranges, 
+    hough_detect_big_ball, 
+    distance_mask_detect_small_ball, 
+    MIN_DETECTION_SCORE, 
+    TARGET_FRAMES, 
+    MIN_VALID_FRAMES
+)
+from curve_fitting import fit_curves, draw_physics_overlay
 from config import PHONE_PWA_URL
 from contextlib import asynccontextmanager
 
@@ -61,6 +69,7 @@ async def lifespan(app: FastAPI):
     """
     init_storage()
     os.makedirs(SESSIONS_DATA_DIR, exist_ok=True)
+    os.makedirs(RUNS_DATA_DIR, exist_ok=True)
     logger.info("Storage initialized and backend started.")
     yield
     logger.info("Backend shutting down.")
@@ -87,6 +96,14 @@ app.add_middleware(
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(current_dir, "data")
 SESSIONS_DATA_DIR = os.path.join(DATA_DIR, "sessions")
+RUNS_DATA_DIR = os.path.join(DATA_DIR, "runs")
+
+# Ensure directories exist before mounting (mount happens at import time)
+os.makedirs(SESSIONS_DATA_DIR, exist_ok=True)
+os.makedirs(RUNS_DATA_DIR, exist_ok=True)
+
+# Mount static files directory for runs
+app.mount("/data/runs", StaticFiles(directory=RUNS_DATA_DIR), name="runs")
 
 
 
@@ -225,11 +242,12 @@ async def setup(request: Request, x_session_code: str = Header(None)):
                 "ok": True
             }
             
-        # Accuracy estimation
-        res = detect_ball_in_frame(state.latest_preview_frame, small_ball_range)
+        # Accuracy estimation using new distance masking
+        res = distance_mask_detect_small_ball(state.latest_preview_frame)
         accuracy = 0
         if res.get("detected"):
-            accuracy = min(100, int(res["score"] * 100))
+            # Score is already normalized in detection.py
+            accuracy = min(100, int(res.get("score", 0) * 100))
             
         if accuracy < 50:
             label = "Poor"
@@ -268,8 +286,8 @@ async def detect_preview(request: Request, x_session_code: str = Header(None)):
         if not state.hsv_ranges:
             return {"detected": False}
             
-        res = detect_ball_in_frame(body, state.hsv_ranges["small_ball_range"])
-        return res
+        # Use distance masking for live preview feedback
+        return distance_mask_detect_small_ball(body)
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
@@ -332,11 +350,12 @@ def run_pipeline(session_code: str):
                 with open(filepath, "rb") as f:
                     image_bytes = f.read()
                 
-                res = detect_ball_in_frame(image_bytes, state.hsv_ranges["small_ball_range"])
+                # Track the small ball using specialized distance masking
+                res = distance_mask_detect_small_ball(image_bytes)
                 if res.get("detected"):
                     frames.append({
                         "frame_index": int(fname.split("_")[1].split(".")[0]),
-                        "score": res["score"],
+                        "score": res.get("score", 0.5),
                         "x_px": res["x_px"],
                         "y_px": res["y_px"],
                         "radius_px": res["radius_px"],
@@ -385,10 +404,12 @@ def run_pipeline(session_code: str):
         for f in selected_frames:
             with open(f["filepath"], "rb") as bf:
                 bb_bytes = bf.read()
-            bb_res = detect_ball_in_frame(bb_bytes, state.hsv_ranges["big_ball_range"])
-            if bb_res.get("detected") and bb_res["score"] > best_bb_score:
-                best_bb_score = bb_res["score"]
+            # Localize the reference marker (big ball) using Hough Transform
+            bb_res = hough_detect_big_ball(bb_bytes)
+            if bb_res.get("detected"):
+                # Hough is very reliable for big objects, so we take the best one and break
                 best_bb = bb_res
+                break
                 
         big_ball_center = {"x_cm": 0.0, "y_cm": 0.0}
         if best_bb:
@@ -396,9 +417,26 @@ def run_pipeline(session_code: str):
             big_ball_center["y_cm"] = round((origin_y - best_bb["y_px"]) / state.px_per_cm, 3)
 
         state.progress = 0.7
+        state.progress_label = "Fitting curves..."
         logger.info(f"Session {session_code}: Coordinates extracted. Starting curve fit.")
+
+        # Perform curve fitting
         fit_result = fit_curves(coordinates)
         logger.info(f"Session {session_code}: Fit complete. Winning curve: {fit_result['winning_curve']}")
+        
+        # --- Visualization Generation ---
+        run_id = f"run_{state.session_code}_{int(time.time())}"
+        try:
+            # Pick the middle frame for the overlay background
+            middle_f = selected_frames[len(selected_frames)//2]
+            img_bg = cv2.imread(middle_f["filepath"])
+            if img_bg is not None:
+                draw_physics_overlay(img_bg, fit_result, origin_x, origin_y, state.px_per_cm, coordinates)
+                viz_path = os.path.join(RUNS_DATA_DIR, f"{run_id}.jpg")
+                cv2.imwrite(viz_path, img_bg)
+                logger.info(f"Session {session_code}: Trajectory visualization saved to {viz_path}")
+        except Exception as k:
+            logger.error(f"Failed to generate visualization for {session_code}: {str(k)}")
         
         state.progress = 0.9
         state.progress_label = "Finalizing..."
@@ -414,11 +452,12 @@ def run_pipeline(session_code: str):
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         
         run_data = {
-            "run_id": f"run_{state.session_code}_{int(time.time())}",
+            "run_id": run_id,
             "session_code": state.session_code,
             "timestamp": timestamp,
             "coordinates": coordinates,
             "big_ball_center": big_ball_center,
+            "visualization_url": f"/data/runs/{run_id}.jpg",
             **fit_result
         }
         
@@ -510,6 +549,74 @@ def get_run(run_id: str):
         return run
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+@app.post("/debug/test-pipeline")
+async def debug_test_pipeline(background_tasks: BackgroundTasks):
+    """
+    Automated end-to-end test using real video file (IMG_0982.MOV).
+    Extracts frames from 25s mark, simulates setup, and triggers analysis.
+    """
+    try:
+        # 1. Create a fresh session
+        session_code = "TESTER"
+        if session_code in sessions:
+            # Cleanup existing if present
+            try: shutil.rmtree(sessions[session_code].frames_dir)
+            except: pass
+            
+        sessions[session_code] = SessionState(session_code)
+        state = sessions[session_code]
+        
+        # 2. Extract frames from the real video
+        video_path = "IMG_0982.MOV"
+        if not os.path.exists(video_path):
+            return JSONResponse(status_code=404, content={"ok": False, "error": f"{video_path} not found"})
+            
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(25.0 * fps))
+        
+        logger.info(f"Debug: Extracting 60 frames from {video_path} for testing...")
+        
+        extracted = 0
+        for i in range(60):
+            ret, frame = cap.read()
+            if not ret: break
+            
+            # Save frame to the session directory
+            fname = f"frame_{i:04d}.jpg"
+            filepath = os.path.join(state.frames_dir, fname)
+            cv2.imwrite(filepath, frame)
+            extracted += 1
+            
+        cap.release()
+        
+        if extracted < 10:
+             return {"ok": False, "error": "Insufficient frames extracted"}
+
+        # 3. Simulate Setup Phase
+        state.px_per_cm = 20.0 # Standard guestimate
+        # Mocking the range structure to pass pipeline validation
+        state.hsv_ranges = {
+            "small_ball_range": {"h": [0,180], "s":[0,255], "v":[0,255]},
+            "big_ball_range": {"h": [0,180], "s":[0,255], "v":[0,255]}
+        }
+        state.status = "processing"
+        
+        # 4. Fire the real production pipeline
+        background_tasks.add_task(run_pipeline, session_code)
+        
+        return {
+            "ok": True, 
+            "session_code": session_code, 
+            "frames_extracted": extracted,
+            "message": "Automated pipeline triggered. Keep polling /status with header X-Session-Code: TESTER"
+        }
+        
+    except Exception as e:
+        logger.error(f"Debug Pipeline Error: {str(e)}")
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
 
 if __name__ == "__main__":
     import uvicorn

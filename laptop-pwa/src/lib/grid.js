@@ -128,6 +128,17 @@ export default class Grid {
         }
     }
 
+    resetView() {
+        this.scale = 1.0;
+        this.offsetX = this.canvas.width / 2;
+        this.offsetY = this.canvas.height / 2;
+        this.render();
+    }
+
+    getScale() {
+        return this.scale;
+    }
+
     activeRuns() {
         return this.runs.filter(r => this.visibleRuns.has(r.run_id));
     }
@@ -153,23 +164,23 @@ export default class Grid {
 
     drawGrid() {
         this.ctx.lineWidth = 1;
-        
+
         const startXCm = Math.floor(this.pxToCm(-this.offsetX));
         const endXCm = Math.ceil(this.pxToCm(this.canvas.width - this.offsetX));
-        const startYCm = Math.floor(this.pxToCm(this.offsetY - this.canvas.height)); 
+        const startYCm = Math.floor(this.pxToCm(this.offsetY - this.canvas.height));
         const endYCm = Math.ceil(this.pxToCm(this.offsetY));
 
         for (let x = startXCm; x <= endXCm; x++) {
             if (x % GRID_MINOR_STEP_CM === 0) {
-                this.ctx.strokeStyle = x % GRID_MAJOR_STEP_CM === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)';
-                if (x === 0) this.ctx.strokeStyle = 'rgba(255,255,255,0.35)'; 
+                this.ctx.strokeStyle = x % GRID_MAJOR_STEP_CM === 0 ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.15)';
+                if (x === 0) this.ctx.strokeStyle = 'rgba(255,255,255,0.50)';
                 this.ctx.beginPath();
                 this.ctx.moveTo(this.mapX(x), 0);
                 this.ctx.lineTo(this.mapX(x), this.canvas.height);
                 this.ctx.stroke();
-                
+
                 if (x % GRID_MAJOR_STEP_CM === 0 && x !== 0) {
-                    this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                    this.ctx.fillStyle = 'rgba(255,255,255,0.6)';
                     this.ctx.font = '11px monospace';
                     this.ctx.fillText(x, this.mapX(x) + 4, this.mapY(0) + 14);
                 }
@@ -178,15 +189,15 @@ export default class Grid {
 
         for (let y = startYCm; y <= endYCm; y++) {
             if (y % GRID_MINOR_STEP_CM === 0) {
-                this.ctx.strokeStyle = y % GRID_MAJOR_STEP_CM === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)';
-                if (y === 0) this.ctx.strokeStyle = 'rgba(255,255,255,0.35)'; 
+                this.ctx.strokeStyle = y % GRID_MAJOR_STEP_CM === 0 ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.15)';
+                if (y === 0) this.ctx.strokeStyle = 'rgba(255,255,255,0.50)';
                 this.ctx.beginPath();
                 this.ctx.moveTo(0, this.mapY(y));
                 this.ctx.lineTo(this.canvas.width, this.mapY(y));
                 this.ctx.stroke();
-                
+
                 if (y % GRID_MAJOR_STEP_CM === 0 && y !== 0) {
-                    this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                    this.ctx.fillStyle = 'rgba(255,255,255,0.6)';
                     this.ctx.font = '11px monospace';
                     this.ctx.fillText(y, this.mapX(0) + 4, this.mapY(y) - 4);
                 }

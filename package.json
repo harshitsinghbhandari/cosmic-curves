@@ -9,6 +9,11 @@
   "scripts": {
     "build": "npm run build -w laptop-pwa && npm run build -w phone-pwa && rm -rf public && mkdir -p public && cp -rv laptop-pwa/dist public/laptop && cp -rv phone-pwa/dist public/phone && cp index.html public/"
   },
+  "dependencies": {
+    "lucide-react": "^0.511.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
   "devDependencies": {
     "vite": "^8.0.1"
   }

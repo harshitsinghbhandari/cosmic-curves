@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CONFIG } from './config';
+import {
+  Camera,
+  Palette,
+  Video,
+  Check,
+  Loader2,
+  Wifi,
+  WifiOff,
+  CircleDot,
+  AlertTriangle
+} from 'lucide-react';
 import './index.css';
 
 const API_BASE = CONFIG.API_BASE;
@@ -7,6 +18,8 @@ const FPS = 15;
 const FRAME_INTERVAL_MS = Math.round(1000 / FPS);
 const JPEG_QUALITY = 0.85;
 const PREVIEW_INTERVAL_MS = 200;
+
+const COLOR_LABELS = ["Small Ball", "Background", "Big Ball"];
 const colorPrompts = ["Tap the small ball", "Tap the sheet/background", "Tap the big ball"];
 
 function App() {
@@ -23,6 +36,10 @@ function App() {
   const [timer, setTimer] = useState('00:00');
   const [sampledColors, setSampledColors] = useState([]);
   const [accuracy, setAccuracy] = useState(null);
+  const [ripple, setRipple] = useState(null);
+  const [queueDepth, setQueueDepth] = useState(0);
+  const [networkHealth, setNetworkHealth] = useState('good');
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
 
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
@@ -32,6 +49,7 @@ function App() {
   const startTimeRef = useRef(0);
   const sendQueueRef = useRef([]);
   const isSendingRef = useRef(false);
+  const lastQueueCheckRef = useRef({ time: 0, depth: 0 });
 
   // Parse URL for session code
   useEffect(() => {
@@ -107,9 +125,9 @@ function App() {
       setSetupPrompt("Calibrating...");
       const blob = captureJPEG();
       const res = await api('/calibrate', 'POST', null, blob, { 'Content-Type': 'image/jpeg' });
-      setSetupResult(`✓ Scale set: ${res.px_per_cm.toFixed(1)} px/cm`);
+      setSetupResult(`Scale calibrated`);
       setTimeout(() => {
-        setSetupStage(1); // Moving to color setup
+        setSetupStage(1);
         setSetupPrompt(colorPrompts[0]);
         startPreviewLoop();
       }, 1500);
@@ -122,7 +140,6 @@ function App() {
   const startPreviewLoop = () => {
     if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
     previewIntervalRef.current = setInterval(async () => {
-      // Don't preview while recording or in join screen
       if (isRecording || screen !== 'camera') return;
 
       try {
@@ -144,6 +161,12 @@ function App() {
     }, PREVIEW_INTERVAL_MS);
   };
 
+  const triggerHaptic = () => {
+    if (navigator.vibrate) {
+      navigator.vibrate(50);
+    }
+  };
+
   const handleColorTap = (e) => {
     if (setupStage === 0 || setupStage > 3) return;
 
@@ -152,8 +175,18 @@ function App() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    const tapX = e.clientX - rect.left;
+    const tapY = e.clientY - rect.top;
+
+    // Trigger ripple animation
+    setRipple({ x: tapX, y: tapY, id: Date.now() });
+    setTimeout(() => setRipple(null), 600);
+
+    // Trigger haptic feedback
+    triggerHaptic();
+
+    const x = tapX * scaleX;
+    const y = tapY * scaleY;
 
     const video = videoRef.current;
     const captureCanvas = captureCanvasRef.current;
@@ -167,6 +200,8 @@ function App() {
     }
     const count = imgData.length / 4;
     r /= count; g /= count; b /= count;
+
+    const rgbColor = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
 
     r /= 255; g /= 255; b /= 255;
     let max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -187,7 +222,8 @@ function App() {
     const newColor = {
       h: Math.round(h * 360),
       s: Math.round(s * 255),
-      v: Math.round(v * 255)
+      v: Math.round(v * 255),
+      rgb: rgbColor
     };
 
     setSampledColors(prev => {
@@ -212,11 +248,19 @@ function App() {
       };
       const res = await api('/setup', 'POST', payload);
       setAccuracy({ score: res.accuracy_score, label: res.accuracy_label });
-      setSetupResult(`Accuracy: ${res.accuracy_score}% (${res.accuracy_label})`);
-      setSetupStage(4); // Finished setup
+      setSetupStage(4);
     } catch (e) {
       setError(e.message);
     }
+  };
+
+  const getAccuracyDisplay = () => {
+    if (!accuracy) return null;
+    const { score, label } = accuracy;
+    if (score >= 80) return { text: "Excellent detection quality", className: "quality-excellent" };
+    if (score >= 60) return { text: "Good detection quality", className: "quality-good" };
+    if (score >= 40) return { text: "Fair - try better lighting", className: "quality-fair" };
+    return { text: "Poor - improve lighting conditions", className: "quality-poor" };
   };
 
   const processQueue = async () => {
@@ -231,6 +275,7 @@ function App() {
           'X-Frame-Index': item.index.toString()
         });
         sendQueueRef.current.shift();
+        setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
       } catch (e) {
         setDroppedFrames(prev => prev + 1);
         sendQueueRef.current.shift();
@@ -239,30 +284,58 @@ function App() {
     isSendingRef.current = false;
   };
 
+  const updateNetworkHealth = () => {
+    const now = Date.now();
+    const currentDepth = sendQueueRef.current.length;
+    const { time: lastTime, depth: lastDepth } = lastQueueCheckRef.current;
+
+    if (now - lastTime > 1000) {
+      const growth = currentDepth - lastDepth;
+      if (growth > 5) {
+        setNetworkHealth('slow');
+      } else if (currentDepth > 20) {
+        setNetworkHealth('stalled');
+      } else {
+        setNetworkHealth('good');
+      }
+      lastQueueCheckRef.current = { time: now, depth: currentDepth };
+    }
+
+    setQueueDepth(currentDepth);
+  };
+
   const toggleRecording = async () => {
     if (!isRecording) {
       setIsRecording(true);
       setScreen('record');
-      
+
       if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
       const ctx = overlayCanvasRef.current.getContext('2d');
       ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
 
       setFrameCount(0);
       setDroppedFrames(0);
+      setUploadProgress({ current: 0, total: 0 });
       startTimeRef.current = Date.now();
       sendQueueRef.current = [];
+      lastQueueCheckRef.current = { time: Date.now(), depth: 0 };
 
       recordIntervalRef.current = setInterval(() => {
         const blob = captureJPEG();
-        sendQueueRef.current.push({ blob: blob, index: sendQueueRef.current.length });
-        setFrameCount(prev => prev + 1);
+        const newIndex = sendQueueRef.current.length;
+        sendQueueRef.current.push({ blob: blob, index: newIndex });
+        setFrameCount(prev => {
+          const newCount = prev + 1;
+          setUploadProgress(p => ({ ...p, total: newCount }));
+          return newCount;
+        });
 
         const diff = Math.floor((Date.now() - startTimeRef.current) / 1000);
         const m = String(Math.floor(diff / 60)).padStart(2, '0');
         const s = String(diff % 60).padStart(2, '0');
         setTimer(`${m}:${s}`);
 
+        updateNetworkHealth();
         processQueue();
       }, FRAME_INTERVAL_MS);
     } else {
@@ -270,8 +343,12 @@ function App() {
       setIsRecording(false);
       setScreen('processing');
 
-      // Wait for queue to empty
+      // Wait for queue to empty with progress updates
       while (sendQueueRef.current.length > 0 || isSendingRef.current) {
+        setUploadProgress(prev => ({
+          ...prev,
+          current: prev.total - sendQueueRef.current.length
+        }));
         await new Promise(r => setTimeout(r, 100));
       }
 
@@ -293,54 +370,126 @@ function App() {
     }
   };
 
+  const getStepperStage = () => {
+    if (setupStage === 0) return 0;
+    if (setupStage >= 1 && setupStage <= 3) return 1;
+    if (setupStage === 4) return 2;
+    return 0;
+  };
+
+  const accuracyInfo = getAccuracyDisplay();
+
   return (
     <div id="app">
       {screen === 'join' && (
         <div id="join-screen" className="screen active full-center">
           <h1>Track Capture</h1>
           <p>Enter session code from laptop:</p>
-          <input 
-            type="text" 
-            id="session-input" 
-            maxLength="6" 
-            placeholder="ABC123" 
+          <input
+            type="text"
+            id="session-input"
+            maxLength="6"
+            placeholder="ABC123"
             value={joinInput}
             onChange={(e) => setJoinInput(e.target.value)}
+            aria-label="Session code input"
           />
-          <button id="btn-join" className="primary" onClick={handleJoin}>Join Session</button>
-          <div id="join-error" className="error">{error}</div>
+          <button id="btn-join" className="primary" onClick={handleJoin} aria-label="Join session">Join Session</button>
+          {error && <div id="join-error" className="error" role="alert">{error}</div>}
         </div>
       )}
 
       {(screen === 'camera' || screen === 'record' || screen === 'processing') && (
         <div id="camera-container" style={{ display: 'block' }}>
           <video ref={videoRef} id="videoElement" autoPlay playsInline muted></video>
-          <canvas 
-            ref={overlayCanvasRef} 
-            id="overlayCanvas" 
+          <canvas
+            ref={overlayCanvasRef}
+            id="overlayCanvas"
             onPointerDown={handleColorTap}
           ></canvas>
+          {ripple && (
+            <div
+              className="tap-ripple"
+              style={{ left: ripple.x, top: ripple.y }}
+              key={ripple.id}
+            />
+          )}
         </div>
       )}
 
       {screen === 'camera' && (
         <div id="setup-ui" className="overlay-ui">
+          {/* Stepper */}
+          <div className="setup-stepper" role="navigation" aria-label="Setup progress">
+            <div className={`step ${getStepperStage() >= 0 ? 'active' : ''} ${getStepperStage() > 0 ? 'completed' : ''}`}>
+              <div className="step-icon">
+                {getStepperStage() > 0 ? <Check size={16} aria-hidden="true" /> : <Camera size={16} aria-hidden="true" />}
+              </div>
+              <span className="step-label">Calibrate</span>
+            </div>
+            <div className="step-connector"></div>
+            <div className={`step ${getStepperStage() >= 1 ? 'active' : ''} ${getStepperStage() > 1 ? 'completed' : ''}`}>
+              <div className="step-icon">
+                {getStepperStage() > 1 ? <Check size={16} aria-hidden="true" /> : <Palette size={16} aria-hidden="true" />}
+              </div>
+              <span className="step-label">Colors</span>
+            </div>
+            <div className="step-connector"></div>
+            <div className={`step ${getStepperStage() >= 2 ? 'active' : ''}`}>
+              <div className="step-icon">
+                <Video size={16} aria-hidden="true" />
+              </div>
+              <span className="step-label">Record</span>
+            </div>
+          </div>
+
           <div className="prompt-box">
             <p id="setup-prompt">{setupPrompt}</p>
+
             {setupStage === 0 && (
                 <div id="setup-calib-step">
-                    <button id="btn-capture-calib" className="primary" onClick={handleCalibrate}>Capture Marker</button>
+                    <button id="btn-capture-calib" className="primary" onClick={handleCalibrate} aria-label="Capture calibration marker">
+                      <Camera size={18} aria-hidden="true" />
+                      Capture Marker
+                    </button>
                 </div>
             )}
+
             {(setupStage > 0 && setupStage < 4) && (
                 <div id="setup-color-step">
-                    <div className="color-indicator">Samples: <span id="color-samples">{setupStage-1}/3</span></div>
+                    <div className="color-swatches" aria-label="Sampled colors">
+                      {COLOR_LABELS.map((label, idx) => (
+                        <div key={label} className={`color-swatch-item ${idx < sampledColors.length ? 'sampled' : ''}`}>
+                          <div
+                            className="swatch-circle"
+                            style={{ backgroundColor: sampledColors[idx]?.rgb || 'transparent' }}
+                          >
+                            {idx < sampledColors.length && <Check size={12} aria-hidden="true" />}
+                          </div>
+                          <span className="swatch-label">{label}</span>
+                        </div>
+                      ))}
+                    </div>
                 </div>
             )}
-            <p id="setup-result" className="success">{setupResult}</p>
-            <p id="setup-error" className="error">{error}</p>
+
+            {setupResult && <p id="setup-result" className="success" aria-live="polite"><Check size={16} aria-hidden="true" /> {setupResult}</p>}
+            {error && <p id="setup-error" className="error" role="alert"><AlertTriangle size={16} aria-hidden="true" /> {error}</p>}
+
+            {setupStage === 4 && accuracyInfo && (
+              <div className={`quality-indicator ${accuracyInfo.className}`} aria-live="polite">
+                <div className="quality-bar">
+                  <div className="quality-fill" style={{ width: `${accuracy.score}%` }}></div>
+                </div>
+                <span className="quality-text">{accuracyInfo.text}</span>
+              </div>
+            )}
+
             {setupStage === 4 && (
-                <button id="btn-start-record" className="primary" onClick={() => setScreen('record')}>Go to Record</button>
+                <button id="btn-start-record" className="primary" onClick={() => setScreen('record')} aria-label="Go to recording screen">
+                  <Video size={18} aria-hidden="true" />
+                  Go to Record
+                </button>
             )}
           </div>
         </div>
@@ -348,15 +497,33 @@ function App() {
 
       {screen === 'record' && (
         <div id="record-ui" className="overlay-ui record-layout">
-          <div className="top-stats">
-            <div id="rec-time">{timer}</div>
-            <div id="rec-frames">Frames: {frameCount}</div>
-            <div id="rec-dropped" className="error" style={{ display: droppedFrames > 0 ? 'block' : 'none' }}>Dropped: {droppedFrames}</div>
+          <div className="recording-stats-panel" aria-live="polite">
+            <div className="stat-item timer">
+              <span className="stat-value">{timer}</span>
+            </div>
+            <div className="stat-item">
+              <CircleDot size={14} className="stat-icon" aria-hidden="true" />
+              <span className="stat-value">{frameCount}</span>
+              <span className="stat-label">frames</span>
+            </div>
+            <div className="stat-item">
+              <Loader2 size={14} className={`stat-icon ${queueDepth > 0 ? 'spinning' : ''}`} aria-hidden="true" />
+              <span className="stat-value">{queueDepth}</span>
+              <span className="stat-label">buffered</span>
+            </div>
+            <div className={`network-indicator ${networkHealth}`} aria-label={`Network status: ${networkHealth}`}>
+              {networkHealth === 'good' ? (
+                <Wifi size={14} aria-hidden="true" />
+              ) : (
+                <WifiOff size={14} aria-hidden="true" />
+              )}
+            </div>
           </div>
-          <button 
-            id="btn-record-action" 
+          <button
+            id="btn-record-action"
             className={`record-btn ${isRecording ? 'recording' : ''}`}
             onClick={toggleRecording}
+            aria-label={isRecording ? "Stop recording" : "Start recording"}
           ></button>
           <p className="hint">Tap button to {isRecording ? "stop" : "start"} recording</p>
         </div>
@@ -364,10 +531,25 @@ function App() {
 
       {screen === 'processing' && (
         <div id="processing-ui" className="overlay-ui full-center dark-bg">
-          <div className="spinner"></div>
-          <h2>Uploading...</h2>
-          <p>Please wait until data is sent to laptop</p>
-          <button onClick={() => setScreen('camera')} className="secondary" style={{marginTop: 20}}>Finish</button>
+          <Loader2 size={48} className="spinning" aria-hidden="true" />
+          <h2>Uploading Frames</h2>
+          <div className="upload-progress" aria-live="polite">
+            <div className="upload-progress-bar">
+              <div
+                className="upload-progress-fill"
+                style={{ width: `${uploadProgress.total > 0 ? (uploadProgress.current / uploadProgress.total) * 100 : 0}%` }}
+              ></div>
+            </div>
+            <p className="upload-count">
+              {uploadProgress.current} of {uploadProgress.total} frames
+            </p>
+          </div>
+          <div className={`upload-health ${networkHealth}`}>
+            {networkHealth === 'good' && <><Wifi size={14} aria-hidden="true" /> Good</>}
+            {networkHealth === 'slow' && <><WifiOff size={14} aria-hidden="true" /> Slow</>}
+            {networkHealth === 'stalled' && <><AlertTriangle size={14} aria-hidden="true" /> Stalled</>}
+          </div>
+          <button onClick={() => setScreen('camera')} className="secondary" style={{marginTop: 20}} aria-label="Return to camera">Finish</button>
         </div>
       )}
 

@@ -1,7 +1,21 @@
-// Laptop Backend API Configuration
+// Laptop PWA Configuration
+// Uses Vite environment variables - automatically switches between dev/prod
+
 export const CONFIG = {
-    // Render Deployment Production URL
-    API_BASE: "https://cosmic-curves.onrender.com",
+    // API Base URL - reads from .env.development or .env.production
+    API_BASE: import.meta.env.VITE_API_BASE || "http://localhost:8000",
+
+    // Polling intervals
     STATUS_POLL_INTERVAL_MS: 1500,
-    PROCESSING_POLL_INTERVAL_MS: 500
+    PROCESSING_POLL_INTERVAL_MS: 500,
+
+    // Environment info (for debugging)
+    IS_DEV: import.meta.env.DEV,
+    IS_PROD: import.meta.env.PROD,
 };
+
+// Log config in development
+if (import.meta.env.DEV) {
+    console.log("[Config] Environment:", import.meta.env.MODE);
+    console.log("[Config] API Base:", CONFIG.API_BASE);
+}
