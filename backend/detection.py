@@ -55,7 +55,7 @@ def compute_hsv_ranges(rgb_dict: dict) -> dict:
 def detect_color_markers(
     image_input,
     target_bgr: List[int],
-    threshold: int = 35
+    threshold: int = 60
 ) -> Dict[str, Any]:
     """
     Detect two color markers for axis calibration using Euclidean distance masking.
@@ -74,9 +74,19 @@ def detect_color_markers(
             - px_distance: pixel distance between markers
             - error: optional error message
     """
+    print(f"[DEBUG detect_color_markers] target_bgr={target_bgr}, threshold={threshold}")
+
     img = _get_image(image_input)
     if img is None:
         return {"detected": False, "error": "Failed to decode image"}
+
+    print(f"[DEBUG detect_color_markers] Image shape: {img.shape}")
+
+    # Debug: sample some pixels from the image
+    h, w = img.shape[:2]
+    center_pixel = img[h//2, w//2]
+    print(f"[DEBUG detect_color_markers] Center pixel BGR: {center_pixel}")
+    print(f"[DEBUG detect_color_markers] Target BGR: {target_bgr}")
 
     # Convert to float for precise distance calculation
     img_float = img.astype(np.float32)
@@ -84,6 +94,10 @@ def detect_color_markers(
 
     # L2 Norm (Euclidean Distance) in 3D color space
     dist = np.linalg.norm(img_float - target, axis=2)
+
+    # Debug: check distance stats
+    print(f"[DEBUG detect_color_markers] Distance stats - min: {dist.min():.1f}, max: {dist.max():.1f}, mean: {dist.mean():.1f}")
+    print(f"[DEBUG detect_color_markers] Pixels within threshold {threshold}: {np.sum(dist < threshold)}")
 
     # Binary mask of similar pixels
     mask = (dist < threshold).astype(np.uint8) * 255
@@ -95,6 +109,7 @@ def detect_color_markers(
 
     # Find contours
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    print(f"[DEBUG detect_color_markers] Found {len(contours)} contours")
 
     # Filter and sort contours by area
     candidates = []
@@ -113,6 +128,9 @@ def detect_color_markers(
 
     # Sort by area (largest first)
     candidates.sort(key=lambda x: x["area"], reverse=True)
+    print(f"[DEBUG detect_color_markers] Valid candidates (area {MARKER_MIN_AREA}-{MARKER_MAX_AREA}): {len(candidates)}")
+    for i, c in enumerate(candidates[:5]):
+        print(f"[DEBUG]   Candidate {i}: pos=({c['x_px']}, {c['y_px']}), area={c['area']}")
 
     if len(candidates) < 2:
         # Fallback: if only 1 marker found, return it with partial result

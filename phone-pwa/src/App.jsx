@@ -404,7 +404,13 @@ function App() {
     setError('');
 
     try {
-      const base64Image = captureBase64();
+      // Get base64 from the CAPTURED frame (not live video)
+      const canvas = captureCanvasRef.current;
+      const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+      const base64Image = dataUrl.split(',')[1];
+
+      console.log('[DEBUG] Sending captured frame, base64 length:', base64Image.length);
+
       const payload = {
         marker_color: { r: markerColor.r, g: markerColor.g, b: markerColor.b },
         marker_distance_cm: parseFloat(markerDistance),

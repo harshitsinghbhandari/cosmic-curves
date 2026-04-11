@@ -239,8 +239,14 @@ async def calibrate(request: Request, x_session_code: str = Header(None)):
             marker_color.get("r", 0)
         ]
 
+        logger.info(f"[DEBUG] Calibration request - RGB: r={marker_color.get('r')}, g={marker_color.get('g')}, b={marker_color.get('b')}")
+        logger.info(f"[DEBUG] Converted to BGR: {marker_bgr}")
+        logger.info(f"[DEBUG] Distance: {marker_distance_cm} cm")
+        logger.info(f"[DEBUG] Image base64 length: {len(image_base64)}")
+
         # Decode base64 image
         image_bytes = base64.b64decode(image_base64)
+        logger.info(f"[DEBUG] Decoded image bytes: {len(image_bytes)}")
 
         # Process calibration with markers
         result = process_calibration_with_markers(
@@ -248,6 +254,7 @@ async def calibrate(request: Request, x_session_code: str = Header(None)):
             marker_bgr,
             float(marker_distance_cm)
         )
+        logger.info(f"[DEBUG] Calibration result: {result}")
 
         # Store calibration data in session
         state.marker_color_bgr = marker_bgr
