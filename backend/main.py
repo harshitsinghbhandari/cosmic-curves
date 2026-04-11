@@ -326,42 +326,59 @@ def run_pipeline(session_code: str):
     state = get_session_by_code(session_code)
     if not state:
         return
-        
+
     try:
         logger.info(f"Starting pipeline analysis for session {session_code}")
         state.progress = 0.0
         state.progress_label = "Validating session..."
-        
+
         if not state.px_per_cm:
             raise ValueError("Calibration not completed")
         if not state.hsv_ranges:
             raise ValueError("Color setup not completed")
         if state.frame_count < MIN_VALID_FRAMES:
             raise ValueError(f"Only {state.frame_count} frames received — minimum {MIN_VALID_FRAMES} required")
-            
+
         logger.info(f"Session {session_code}: Found {state.frame_count} frames on disk. Starting detection...")
         state.progress_label = "Scoring frames..."
-        
+
         frames = []
+        all_frame_results = []  # Store ALL frame detection results for debug
         filenames = sorted(os.listdir(state.frames_dir))
+        total_frames = len([f for f in filenames if f.endswith(".jpg")])
+
         for i, fname in enumerate(filenames):
             if fname.endswith(".jpg"):
                 filepath = os.path.join(state.frames_dir, fname)
                 with open(filepath, "rb") as f:
                     image_bytes = f.read()
-                
+
+                frame_idx = int(fname.split("_")[1].split(".")[0])
+
                 # Track the small ball using specialized distance masking
                 res = distance_mask_detect_small_ball(image_bytes)
+
+                # Store ALL results for debug view
+                frame_result = {
+                    "frame_index": frame_idx,
+                    "detected": res.get("detected", False),
+                    "score": round(res.get("score", 0), 3) if res.get("detected") else 0,
+                    "x_px": res.get("x_px", 0),
+                    "y_px": res.get("y_px", 0),
+                    "radius_px": res.get("radius_px", 0)
+                }
+                all_frame_results.append(frame_result)
+
                 if res.get("detected"):
                     frames.append({
-                        "frame_index": int(fname.split("_")[1].split(".")[0]),
+                        "frame_index": frame_idx,
                         "score": res.get("score", 0.5),
                         "x_px": res["x_px"],
                         "y_px": res["y_px"],
                         "radius_px": res["radius_px"],
                         "filepath": filepath
                     })
-            
+
             state.progress = 0.1 + (0.3 * (i/len(filenames)))
             
         state.progress = 0.4
@@ -448,9 +465,25 @@ def run_pipeline(session_code: str):
             
         state.progress = 1.0
         state.progress_label = "Done ✓"
-        
+
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        
+
+        # Calculate detailed statistics
+        detected_count = len([f for f in all_frame_results if f["detected"]])
+        scores = [f["score"] for f in all_frame_results if f["detected"]]
+        avg_score = round(sum(scores) / len(scores), 3) if scores else 0
+        min_score = round(min(scores), 3) if scores else 0
+        max_score = round(max(scores), 3) if scores else 0
+
+        # Get all curve fit details (not just winner)
+        all_curves = {}
+        for curve_type in ["parabola", "ellipse", "hyperbola"]:
+            if curve_type in fit_result.get("residuals", {}):
+                all_curves[curve_type] = {
+                    "residual": fit_result["residuals"][curve_type],
+                    "is_winner": curve_type == fit_result["winning_curve"]
+                }
+
         run_data = {
             "run_id": run_id,
             "session_code": state.session_code,
@@ -458,9 +491,27 @@ def run_pipeline(session_code: str):
             "coordinates": coordinates,
             "big_ball_center": big_ball_center,
             "visualization_url": f"/data/runs/{run_id}.jpg",
+            # Detailed stats
+            "stats": {
+                "total_frames": len(all_frame_results),
+                "detected_frames": detected_count,
+                "selected_frames": len(selected_frames),
+                "rejected_frames": detected_count - len(selected_frames),
+                "detection_rate": round(detected_count / len(all_frame_results) * 100, 1) if all_frame_results else 0,
+                "avg_score": avg_score,
+                "min_score": min_score,
+                "max_score": max_score,
+                "px_per_cm": round(state.px_per_cm, 2),
+                "frame_dimensions": {"width": frame_width, "height": frame_height},
+                "origin": {"x": origin_x, "y": origin_y}
+            },
+            # All frame detection results for debug view
+            "all_frames": all_frame_results,
+            # All curve fits
+            "all_curves": all_curves,
             **fit_result
         }
-        
+
         append_run(run_data)
         state.result = run_data
         state.status = "done"

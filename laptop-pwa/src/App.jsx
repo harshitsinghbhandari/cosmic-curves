@@ -12,7 +12,16 @@ import {
   Circle,
   X as XIcon,
   Move,
-  Trophy
+  Trophy,
+  BarChart3,
+  Table,
+  Image,
+  ChevronDown,
+  ChevronRight,
+  Target,
+  Ruler,
+  Activity,
+  Frame
 } from 'lucide-react';
 import './index.css';
 
@@ -32,6 +41,8 @@ function App() {
   const [visMode, setVisMode] = useState('both');
   const [error, setError] = useState('');
   const [zoomLevel, setZoomLevel] = useState(100);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [analysisTab, setAnalysisTab] = useState('stats');
 
   const gridRef = useRef(null);
   const canvasRef = useRef(null);
@@ -184,6 +195,206 @@ function App() {
     }
   };
 
+  // Render the detailed analysis panel
+  const renderAnalysisPanel = () => {
+    if (!selectedRun) return null;
+
+    const stats = selectedRun.stats || {};
+    const allFrames = selectedRun.all_frames || [];
+    const coordinates = selectedRun.coordinates || [];
+    const bigBall = selectedRun.big_ball_center || {};
+
+    return (
+      <div className="analysis-panel">
+        <div className="analysis-header">
+          <h3><BarChart3 size={18} /> Detailed Analysis</h3>
+          <button className="close-btn" onClick={() => setShowAnalysis(false)}>
+            <XIcon size={18} />
+          </button>
+        </div>
+
+        <div className="analysis-tabs">
+          <button className={analysisTab === 'stats' ? 'active' : ''} onClick={() => setAnalysisTab('stats')}>
+            <Activity size={14} /> Stats
+          </button>
+          <button className={analysisTab === 'coords' ? 'active' : ''} onClick={() => setAnalysisTab('coords')}>
+            <Table size={14} /> Coordinates
+          </button>
+          <button className={analysisTab === 'frames' ? 'active' : ''} onClick={() => setAnalysisTab('frames')}>
+            <Frame size={14} /> All Frames
+          </button>
+          <button className={analysisTab === 'viz' ? 'active' : ''} onClick={() => setAnalysisTab('viz')}>
+            <Image size={14} /> Visualization
+          </button>
+        </div>
+
+        <div className="analysis-content">
+          {analysisTab === 'stats' && (
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-label">Total Frames</div>
+                <div className="stat-value">{stats.total_frames || 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Detected</div>
+                <div className="stat-value success">{stats.detected_frames || 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Selected</div>
+                <div className="stat-value">{stats.selected_frames || 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Rejected</div>
+                <div className="stat-value warning">{stats.rejected_frames || 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Detection Rate</div>
+                <div className="stat-value">{stats.detection_rate ? `${stats.detection_rate}%` : 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Avg Score</div>
+                <div className="stat-value">{stats.avg_score || 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Min Score</div>
+                <div className="stat-value">{stats.min_score || 'N/A'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Max Score</div>
+                <div className="stat-value">{stats.max_score || 'N/A'}</div>
+              </div>
+
+              <div className="stat-card wide">
+                <div className="stat-label"><Ruler size={14} /> Calibration</div>
+                <div className="stat-value">{stats.px_per_cm ? `${stats.px_per_cm} px/cm` : 'N/A'}</div>
+              </div>
+              <div className="stat-card wide">
+                <div className="stat-label">Frame Size</div>
+                <div className="stat-value">
+                  {stats.frame_dimensions ? `${stats.frame_dimensions.width} × ${stats.frame_dimensions.height}` : 'N/A'}
+                </div>
+              </div>
+
+              <div className="stat-card wide">
+                <div className="stat-label"><Target size={14} /> Big Ball Center</div>
+                <div className="stat-value">
+                  ({bigBall.x_cm?.toFixed(2) || 0}, {bigBall.y_cm?.toFixed(2) || 0}) cm
+                </div>
+              </div>
+
+              <div className="stat-card full">
+                <div className="stat-label"><Trophy size={14} /> Winning Curve</div>
+                <div className="stat-value highlight">{selectedRun.winning_curve?.toUpperCase() || 'N/A'}</div>
+              </div>
+
+              <div className="stat-card full">
+                <div className="stat-label">Equation</div>
+                <div className="equation-display">{selectedRun.equation?.display || 'N/A'}</div>
+              </div>
+
+              <div className="stat-card full">
+                <div className="stat-label">All Curve Residuals</div>
+                <div className="residuals-compare">
+                  {selectedRun.residuals && Object.entries(selectedRun.residuals).map(([curve, residual]) => (
+                    <div key={curve} className={`residual-row ${selectedRun.winning_curve === curve ? 'winner' : ''}`}>
+                      <span className="curve-name">{curve}</span>
+                      <span className="residual-bar">
+                        <span className="bar-fill" style={{ width: `${Math.min(100, residual * 10)}%` }}></span>
+                      </span>
+                      <span className="residual-num">{residual.toFixed(4)}</span>
+                      {selectedRun.winning_curve === curve && <Trophy size={12} className="winner-icon" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {analysisTab === 'coords' && (
+            <div className="coords-table-wrapper">
+              <table className="coords-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Frame</th>
+                    <th>X (cm)</th>
+                    <th>Y (cm)</th>
+                    <th>Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coordinates.map((coord, i) => (
+                    <tr key={i}>
+                      <td>{i + 1}</td>
+                      <td>{coord.frame_index}</td>
+                      <td>{coord.x_cm?.toFixed(3)}</td>
+                      <td>{coord.y_cm?.toFixed(3)}</td>
+                      <td className={coord.score > 0.7 ? 'good' : coord.score > 0.4 ? 'ok' : 'poor'}>
+                        {coord.score?.toFixed(3)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="table-summary">
+                Total: {coordinates.length} points
+              </div>
+            </div>
+          )}
+
+          {analysisTab === 'frames' && (
+            <div className="frames-table-wrapper">
+              <div className="frames-summary">
+                <span className="detected">Detected: {allFrames.filter(f => f.detected).length}</span>
+                <span className="not-detected">Not Detected: {allFrames.filter(f => !f.detected).length}</span>
+              </div>
+              <table className="frames-table">
+                <thead>
+                  <tr>
+                    <th>Frame #</th>
+                    <th>Detected</th>
+                    <th>X (px)</th>
+                    <th>Y (px)</th>
+                    <th>Radius</th>
+                    <th>Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allFrames.map((frame, i) => (
+                    <tr key={i} className={frame.detected ? 'detected' : 'not-detected'}>
+                      <td>{frame.frame_index}</td>
+                      <td>{frame.detected ? <Check size={14} className="success" /> : <XIcon size={14} className="error" />}</td>
+                      <td>{frame.detected ? frame.x_px : '-'}</td>
+                      <td>{frame.detected ? frame.y_px : '-'}</td>
+                      <td>{frame.detected ? frame.radius_px : '-'}</td>
+                      <td className={frame.score > 0.7 ? 'good' : frame.score > 0.4 ? 'ok' : 'poor'}>
+                        {frame.detected ? frame.score.toFixed(3) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {analysisTab === 'viz' && (
+            <div className="viz-panel">
+              {selectedRun.visualization_url ? (
+                <img
+                  src={`${API_BASE}${selectedRun.visualization_url}`}
+                  alt="Trajectory visualization"
+                  className="viz-image"
+                />
+              ) : (
+                <div className="no-viz">No visualization available</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div id="app">
       {screen === 'home' && (
@@ -293,7 +504,7 @@ function App() {
       )}
 
       {screen === 'results' && (
-        <div id="results-screen" className="screen active results-layout">
+        <div id="results-screen" className={`screen active results-layout ${showAnalysis ? 'with-analysis' : ''}`}>
           <div className="sidebar" role="complementary" aria-label="Run controls and details">
             <h3>Runs</h3>
             <div id="run-list" role="list">
@@ -318,7 +529,7 @@ function App() {
                   ></div>
                   <div className="run-title">
                     <span className="run-label">Run {r.session_code}</span>
-                    <span className="run-meta">{new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} &middot; {r.coordinates?.length || 0} pts</span>
+                    <span className="run-meta">{new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} · {r.coordinates?.length || 0} pts</span>
                   </div>
                   <button
                     className="toggle-vis"
@@ -334,6 +545,17 @@ function App() {
                 </div>
               ))}
             </div>
+
+            {/* Analysis Toggle Button */}
+            <button
+              className={`analysis-toggle ${showAnalysis ? 'active' : ''}`}
+              onClick={() => setShowAnalysis(!showAnalysis)}
+              aria-label="Toggle detailed analysis panel"
+            >
+              <BarChart3 size={16} />
+              {showAnalysis ? 'Hide Analysis' : 'Show Analysis'}
+            </button>
+
             <button onClick={() => setScreen('home')} className="secondary" aria-label="Start new session">+ New Session</button>
 
             <div className="controls" role="group" aria-label="Visualization options">
@@ -376,8 +598,8 @@ function App() {
             {selectedRun && (
               <div className="run-details">
                 <h4>Selected Run Equation</h4>
-                <p className="equation-text">{selectedRun.equation.display}</p>
-                <p className="eq-type">Type: {selectedRun.equation.type}</p>
+                <p className="equation-text">{selectedRun.equation?.display}</p>
+                <p className="eq-type">Type: {selectedRun.equation?.type}</p>
 
                 <details className="residuals" open>
                   <summary>
@@ -385,7 +607,7 @@ function App() {
                     Residuals (lower = better fit)
                   </summary>
                   <div className="residuals-list">
-                    {Object.entries(selectedRun.residuals).map(([key, val]) => (
+                    {selectedRun.residuals && Object.entries(selectedRun.residuals).map(([key, val]) => (
                       <div key={key} className={selectedRun.winning_curve === key ? 'winning' : ''}>
                         <span className="residual-name">{key}</span>
                         <span className="residual-value">
@@ -401,6 +623,7 @@ function App() {
               </div>
             )}
           </div>
+
           <div className="canvas-container" role="img" aria-label="Trajectory visualization canvas">
             <canvas ref={canvasRef} id="grid-canvas"></canvas>
             <div id="tooltip" className="tooltip" role="tooltip"></div>
@@ -421,7 +644,7 @@ function App() {
               </button>
               <div className="hud-hint">
                 <Move size={12} aria-hidden="true" />
-                Scroll to zoom &middot; Drag to pan
+                Scroll to zoom · Drag to pan
               </div>
             </div>
 
@@ -441,6 +664,9 @@ function App() {
               </div>
             </div>
           </div>
+
+          {/* Analysis Panel */}
+          {showAnalysis && renderAnalysisPanel()}
         </div>
       )}
     </div>
