@@ -28,7 +28,7 @@ import numpy as np
 import logging
 from datetime import datetime, timezone
 from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import qrcode
@@ -845,6 +845,55 @@ def get_status(x_session_code: str = Header(None)):
                 "colors_set": state.small_ball_bgr is not None,
                 "setup_complete": state.is_setup_complete()
             }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+@app.get("/session/frames")
+def get_session_frames(x_session_code: str = Header(...)):
+    """
+    Get list of available frame indices for the current session.
+    Returns the most recent N frame indices for preview.
+    """
+    try:
+        state = get_session_by_code(x_session_code)
+        if not state.frames_dir or not os.path.exists(state.frames_dir):
+            return {"frames": [], "total": 0}
+
+        filenames = sorted([f for f in os.listdir(state.frames_dir) if f.endswith(".jpg")])
+        indices = [int(f.split("_")[1].split(".")[0]) for f in filenames]
+
+        # Return last 20 frames for preview
+        recent = indices[-20:] if len(indices) > 20 else indices
+
+        return {
+            "frames": recent,
+            "total": len(indices)
+        }
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+@app.get("/session/frame/{index}")
+def get_frame_by_index(index: int, session: str = None, x_session_code: str = Header(None)):
+    """
+    Serve a specific frame image from the current session.
+    Accepts session code via query param or header.
+    """
+    try:
+        code = session or x_session_code
+        if not code:
+            raise ValueError("Session code required")
+
+        state = get_session_by_code(code)
+        if not state.frames_dir:
+            raise ValueError("No frames directory")
+
+        filename = f"frame_{index:04d}.jpg"
+        filepath = os.path.join(state.frames_dir, filename)
+
+        if not os.path.exists(filepath):
+            raise ValueError(f"Frame {index} not found")
+
+        return FileResponse(filepath, media_type="image/jpeg")
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 

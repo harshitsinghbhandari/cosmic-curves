@@ -44,10 +44,12 @@ function App() {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisTab, setAnalysisTab] = useState('stats');
   const [frameModalUrl, setFrameModalUrl] = useState(null);
+  const [previewFrames, setPreviewFrames] = useState([]);
 
   const gridRef = useRef(null);
   const canvasRef = useRef(null);
   const pollTimerRef = useRef(null);
+  const framesPollRef = useRef(null);
 
   // Helper for API calls
   const api = async (path, method = "GET", body = null, headers = {}) => {
@@ -108,6 +110,31 @@ function App() {
       }, interval);
 
       return () => clearInterval(pollTimerRef.current);
+    }
+  }, [screen, sessionCode]);
+
+  // Poll for preview frames during recording
+  useEffect(() => {
+    if (screen === 'record' && sessionCode) {
+      const fetchFrames = async () => {
+        try {
+          const res = await api('/session/frames');
+          if (res.frames && res.frames.length > 0) {
+            setPreviewFrames(res.frames);
+          }
+        } catch (e) {
+          console.error('Failed to fetch frames:', e);
+        }
+      };
+
+      // Fetch immediately, then every 2 seconds
+      fetchFrames();
+      framesPollRef.current = setInterval(fetchFrames, 2000);
+
+      return () => {
+        clearInterval(framesPollRef.current);
+        setPreviewFrames([]);
+      };
     }
   }, [screen, sessionCode]);
 
@@ -515,16 +542,42 @@ function App() {
       )}
 
       {screen === 'record' && (
-        <div id="record-screen" className="screen active">
-          <h2>Recording Control</h2>
-          <div className="recording-indicator" role="status" aria-live="polite">
-            <span className="animated-dot" aria-hidden="true"></span>
-            <span>{status.status === 'recording' ? "Recording in progress" : "Waiting for recording..."}</span>
+        <div id="record-screen" className="screen active record-layout">
+          <div className="record-header">
+            <h2>Recording Control</h2>
+            <div className="recording-indicator" role="status" aria-live="polite">
+              <span className="animated-dot" aria-hidden="true"></span>
+              <span>{status.status === 'recording' ? "Recording in progress" : "Waiting for recording..."}</span>
+            </div>
+            <div className="stats">
+              <p>Frames captured: <strong>{frameCount}</strong></p>
+            </div>
+            <button onClick={stopRecord} className="danger" aria-label="Stop recording and analyze">Stop & Analyze</button>
           </div>
-          <div className="stats">
-            <p>Frames captured: {frameCount}</p>
+
+          {/* Frame Preview Section */}
+          <div className="frame-preview-section">
+            <h3>Frame Preview</h3>
+            {previewFrames.length === 0 ? (
+              <div className="no-frames">
+                <Loader2 className="spinning" size={24} />
+                <p>Waiting for frames...</p>
+              </div>
+            ) : (
+              <div className="frame-grid">
+                {previewFrames.slice(-12).map((idx) => (
+                  <div key={idx} className="frame-thumb" onClick={() => setFrameModalUrl(`${API_BASE}/session/frame/${idx}?session=${sessionCode}`)}>
+                    <img
+                      src={`${API_BASE}/session/frame/${idx}?session=${sessionCode}`}
+                      alt={`Frame ${idx}`}
+                      loading="lazy"
+                    />
+                    <span className="frame-number">#{idx}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <button onClick={stopRecord} className="danger" aria-label="Stop recording and analyze">Stop & Analyze</button>
         </div>
       )}
 
