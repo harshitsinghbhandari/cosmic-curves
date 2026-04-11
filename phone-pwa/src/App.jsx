@@ -162,25 +162,52 @@ function App() {
   // Capture still image for color selection
   const captureStillImage = () => {
     const video = videoRef.current;
-    const canvas = captureCanvasRef.current;
-    if (!video || !canvas) return;
+    const captureCanvas = captureCanvasRef.current;
+    const overlayCanvas = overlayCanvasRef.current;
 
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    setCapturedImage(dataUrl);
+    if (!video || !captureCanvas || !overlayCanvas) {
+      console.error('[DEBUG] Missing refs');
+      return;
+    }
 
-    // Center the box on captured image
-    setBoxPos({ x: canvas.width / 2, y: canvas.height / 2 });
+    // Draw to capture canvas (for sampling)
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+    // Also draw to overlay canvas (for display)
+    const overlayCtx = overlayCanvas.getContext('2d');
+    overlayCtx.drawImage(video, 0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    console.log('[DEBUG] Captured to both canvases');
+
+    // Use a simple flag
+    setCapturedImage('captured');
+
+    // Center the box
+    setBoxPos({ x: captureCanvas.width / 2, y: captureCanvas.height / 2 });
     triggerHaptic();
   };
 
   // Retake - clear captured image
   const retakeImage = () => {
+    console.log('[DEBUG] retakeImage called');
     setCapturedImage(null);
     setPreviewColor(null);
+
+    // Clear the overlay canvas
+    const overlayCanvas = overlayCanvasRef.current;
+    if (overlayCanvas) {
+      const ctx = overlayCanvas.getContext('2d');
+      ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    }
+
     triggerHaptic();
   };
+
+  // Debug: log when capturedImage changes
+  useEffect(() => {
+    console.log('[DEBUG] capturedImage state changed:', capturedImage ? `${capturedImage.length} chars` : 'null');
+  }, [capturedImage]);
 
   const sampleColorAtPoint = (x, y) => {
     const video = videoRef.current;
@@ -208,34 +235,25 @@ function App() {
     return { r, g, b, rgb: `rgb(${r}, ${g}, ${b})` };
   };
 
-  // Sample average color from the selection box on captured image
+  // Sample average color from the selection box on captured canvas
   const sampleColorFromBox = useCallback(() => {
-    if (!capturedImage) return null;
+    const canvas = captureCanvasRef.current;
+    if (!capturedImage || !canvas) return null;
 
-    // Create temp canvas to sample from captured image
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-    const img = new Image();
-    img.src = capturedImage;
-
-    tempCanvas.width = img.width || captureCanvasRef.current?.width || 800;
-    tempCanvas.height = img.height || captureCanvasRef.current?.height || 600;
-
-    // Draw captured image to temp canvas
-    tempCtx.drawImage(img, 0, 0);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     // Calculate box bounds
     const halfSize = boxSize / 2;
     const x1 = Math.max(0, Math.floor(boxPos.x - halfSize));
     const y1 = Math.max(0, Math.floor(boxPos.y - halfSize));
-    const x2 = Math.min(tempCanvas.width, Math.floor(boxPos.x + halfSize));
-    const y2 = Math.min(tempCanvas.height, Math.floor(boxPos.y + halfSize));
+    const x2 = Math.min(canvas.width, Math.floor(boxPos.x + halfSize));
+    const y2 = Math.min(canvas.height, Math.floor(boxPos.y + halfSize));
 
     const width = x2 - x1;
     const height = y2 - y1;
     if (width <= 0 || height <= 0) return null;
 
-    const imgData = tempCtx.getImageData(x1, y1, width, height).data;
+    const imgData = ctx.getImageData(x1, y1, width, height).data;
 
     let r = 0, g = 0, b = 0;
     for (let i = 0; i < imgData.length; i += 4) {
@@ -261,15 +279,19 @@ function App() {
 
   // Draw the selection box overlay (only when captured image exists)
   const drawBoxOverlay = useCallback(() => {
-    const canvas = overlayCanvasRef.current;
-    if (!canvas || !capturedImage) return;
-    const ctx = canvas.getContext('2d');
+    const overlayCanvas = overlayCanvasRef.current;
+    const captureCanvas = captureCanvasRef.current;
+    if (!overlayCanvas || !capturedImage) return;
 
     // Only draw box during marker selection stages
     if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const ctx = overlayCanvas.getContext('2d');
+
+    // Redraw the captured image first (from capture canvas)
+    if (captureCanvas) {
+      ctx.drawImage(captureCanvas, 0, 0, overlayCanvas.width, overlayCanvas.height);
+    }
 
     const halfSize = boxSize / 2;
     const x = boxPos.x - halfSize;
@@ -674,12 +696,14 @@ function App() {
 
       {(screen === 'camera' || screen === 'record' || screen === 'processing') && (
         <div id="camera-container" style={{ display: 'block' }}>
-          {/* Show captured image when available, otherwise show live video */}
-          {capturedImage && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP) ? (
-            <img src={capturedImage} alt="Captured" className="captured-image" />
-          ) : (
-            <video ref={videoRef} id="videoElement" autoPlay playsInline muted></video>
-          )}
+          {/* Video always visible - captured frame drawn on overlay canvas */}
+          <video
+            ref={videoRef}
+            id="videoElement"
+            autoPlay
+            playsInline
+            muted
+          ></video>
           <canvas
             ref={overlayCanvasRef}
             id="overlayCanvas"
@@ -1003,6 +1027,7 @@ function App() {
         </div>
       )}
 
+      {/* Hidden canvas for capturing frames */}
       <canvas ref={captureCanvasRef} id="captureCanvas" style={{ display: 'none' }}></canvas>
     </div>
   );

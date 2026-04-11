@@ -4,3 +4,15 @@
 2026-04-06 18:46:02,014 [INFO] cosmoscurves: Storage initialized and backend started.
 2026-04-06 18:46:17,060 [INFO] cosmoscurves: Storage initialized and backend started.
 2026-04-06 19:15:31,589 [INFO] cosmoscurves: Backend shutting down.
+2026-04-11 11:03:11,763 [INFO] cosmoscurves: Storage initialized and backend started.
+2026-04-11 11:03:15,400 [INFO] cosmoscurves: Backend shutting down.
+2026-04-11 11:03:19,835 [INFO] cosmoscurves: Storage initialized and backend started.
+2026-04-11 11:03:28,619 [INFO] cosmoscurves: Backend shutting down.
+2026-04-11 11:03:30,067 [INFO] cosmoscurves: Storage initialized and backend started.
+2026-04-11 11:06:59,254 [INFO] cosmoscurves: Backend shutting down.
+2026-04-11 11:07:00,656 [INFO] cosmoscurves: Storage initialized and backend started.
+2026-04-11 11:07:53,075 [INFO] cosmoscurves: Backend shutting down.
+2026-04-11 11:07:57,321 [INFO] cosmoscurves: Storage initialized and backend started.
+2026-04-11 11:08:16,962 [INFO] cosmoscurves: New session created: DCJHZR (ID: 8214add2-db0a-4595-a7e6-fde2436714af)
+2026-04-11 11:08:16,963 [INFO] cosmoscurves: Session capture URL: http://localhost:3001?session=DCJHZR
+2026-04-11 11:15:44,266 [INFO] cosmoscurves: Backend shutting down.
