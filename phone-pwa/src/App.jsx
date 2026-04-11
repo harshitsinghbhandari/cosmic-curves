@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CONFIG } from './config';
 import {
   Crosshair,
-  Ruler,
   CircleDot,
   TestTube2,
   Video,
@@ -10,8 +9,13 @@ import {
   Loader2,
   Wifi,
   WifiOff,
-  AlertTriangle,
-  X
+  Camera,
+  RotateCcw,
+  Square,
+  Minus,
+  Plus,
+  X,
+  AlertTriangle
 } from 'lucide-react';
 import './index.css';
 
@@ -674,13 +678,6 @@ function App() {
     }
   };
 
-  const getStepperStage = () => {
-    if (setupStage <= STAGES.MARKER_DISTANCE) return 0;
-    if (setupStage <= STAGES.SMALL_BALL_TAP) return 1;
-    if (setupStage <= STAGES.TEST_DETECTION) return 2;
-    return 3;
-  };
-
   return (
     <div id="app">
       {screen === 'join' && (
@@ -730,204 +727,147 @@ function App() {
       )}
 
       {screen === 'camera' && (
-        <div id="setup-ui" className="overlay-ui">
-          <div className="setup-stepper">
-            <div className={`step ${getStepperStage() >= 0 ? 'active' : ''} ${getStepperStage() > 0 ? 'completed' : ''}`}>
-              <div className="step-icon">
-                {getStepperStage() > 0 ? <Check size={16} /> : <Crosshair size={16} />}
-              </div>
-              <span className="step-label">Markers</span>
+        <>
+          {/* Right sidebar - always visible */}
+          <div className="sidebar">
+            {/* Stage indicator dots */}
+            <div className="stage-dots">
+              {[0, 1, 2, 3, 4].map(i => (
+                <div
+                  key={i}
+                  className={`dot ${setupStage > i ? 'completed' : ''} ${setupStage === i ? 'active' : ''}`}
+                />
+              ))}
             </div>
-            <div className="step-connector"></div>
-            <div className={`step ${getStepperStage() >= 1 ? 'active' : ''} ${getStepperStage() > 1 ? 'completed' : ''}`}>
-              <div className="step-icon">
-                {getStepperStage() > 1 ? <Check size={16} /> : <CircleDot size={16} />}
-              </div>
-              <span className="step-label">Ball</span>
-            </div>
-            <div className="step-connector"></div>
-            <div className={`step ${getStepperStage() >= 2 ? 'active' : ''} ${getStepperStage() > 2 ? 'completed' : ''}`}>
-              <div className="step-icon">
-                {getStepperStage() > 2 ? <Check size={16} /> : <TestTube2 size={16} />}
-              </div>
-              <span className="step-label">Test</span>
-            </div>
-            <div className="step-connector"></div>
-            <div className={`step ${getStepperStage() >= 3 ? 'active' : ''}`}>
-              <div className="step-icon">
-                <Video size={16} />
-              </div>
-              <span className="step-label">Record</span>
-            </div>
-          </div>
 
-          <div className="prompt-box">
-            <p id="setup-prompt">{setupPrompt}</p>
-
-            {setupStage === STAGES.MARKER_TAP && (
-              <div id="setup-marker-tap">
+            {/* MARKER_TAP or SMALL_BALL_TAP stages */}
+            {(setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP) && (
+              <>
                 {!capturedImage ? (
-                  <>
-                    <p className="hint-text">Point camera at your markers</p>
-                    <button className="primary capture-btn" onClick={captureStillImage}>
-                      <Crosshair size={18} />
-                      Capture Image
-                    </button>
-                  </>
+                  <button className="sidebar-btn primary" onClick={captureStillImage}>
+                    <Camera size={20} />
+                  </button>
                 ) : (
                   <>
-                    <p className="hint-text">Drag box over a marker</p>
-                    {previewColor && (
-                      <div className="color-preview-bar">
-                        <div className="preview-swatch" style={{ backgroundColor: previewColor.rgb }}></div>
-                        <span className="preview-label">Selected: RGB({previewColor.r}, {previewColor.g}, {previewColor.b})</span>
-                      </div>
-                    )}
-                    <div className="box-controls">
-                      <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
-                      <span className="box-size-label">{boxSize}px</span>
-                      <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
-                    </div>
-                    <div className="action-buttons">
-                      <button className="secondary" onClick={retakeImage}>
-                        Retake
-                      </button>
-                      <button className="primary" onClick={handleSampleFromBox}>
-                        <Check size={18} />
-                        Confirm Color
-                      </button>
-                    </div>
+                    <button className="sidebar-btn" onClick={() => handleBoxSizeChange(-5)}>
+                      <Minus size={18} />
+                    </button>
+                    <span className="size-label">{boxSize}</span>
+                    <button className="sidebar-btn" onClick={() => handleBoxSizeChange(5)}>
+                      <Plus size={18} />
+                    </button>
+                    <div className="sidebar-divider" />
+                    <button className="sidebar-btn" onClick={retakeImage}>
+                      <RotateCcw size={18} />
+                    </button>
+                    <button
+                      className="sidebar-btn primary"
+                      onClick={handleSampleFromBox}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? <Loader2 size={18} className="spinning" /> : <Check size={20} />}
+                    </button>
                   </>
                 )}
-              </div>
+              </>
             )}
 
+            {/* MARKER_DISTANCE stage */}
             {setupStage === STAGES.MARKER_DISTANCE && (
-              <div id="setup-marker-distance">
-                <div className="color-preview">
-                  <div className="swatch-circle sampled" style={{ backgroundColor: markerColor?.rgb }}>
-                    <Check size={12} />
-                  </div>
-                  <span>Marker color</span>
-                </div>
-                <div className="distance-input-group">
-                  <Ruler size={18} />
-                  <input
-                    type="number"
-                    value={markerDistance}
-                    onChange={(e) => setMarkerDistance(e.target.value)}
-                    placeholder="10"
-                    className="distance-input"
-                  />
-                  <span className="unit">cm</span>
-                </div>
-                <button
-                  className="primary"
-                  onClick={handleDetectMarkers}
-                  disabled={isLoading || !markerDistance}
-                >
-                  {isLoading ? <Loader2 size={18} className="spinning" /> : <Crosshair size={18} />}
-                  Detect Markers
-                </button>
-              </div>
+              <button
+                className="sidebar-btn primary"
+                onClick={handleDetectMarkers}
+                disabled={isLoading || !markerDistance}
+              >
+                {isLoading ? <Loader2 size={18} className="spinning" /> : <Crosshair size={20} />}
+              </button>
             )}
 
+            {/* MARKERS_DETECTED stage - auto advances */}
             {setupStage === STAGES.MARKERS_DETECTED && (
-              <div id="setup-markers-detected">
-                <div className="detection-success">
-                  <Check size={24} className="success-icon" />
-                  <span>{setupResult}</span>
-                </div>
-              </div>
+              <button className="sidebar-btn success" disabled>
+                <Check size={20} />
+              </button>
             )}
 
-            {setupStage === STAGES.SMALL_BALL_TAP && (
-              <div id="setup-small-ball">
-                {!capturedImage ? (
-                  <>
-                    <p className="hint-text">Point camera at the small ball</p>
-                    <button className="primary capture-btn" onClick={captureStillImage}>
-                      <CircleDot size={18} />
-                      Capture Image
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="hint-text">Drag box over the small ball</p>
-                    {previewColor && (
-                      <div className="color-preview-bar">
-                        <div className="preview-swatch" style={{ backgroundColor: previewColor.rgb }}></div>
-                        <span className="preview-label">Selected: RGB({previewColor.r}, {previewColor.g}, {previewColor.b})</span>
-                      </div>
-                    )}
-                    <div className="box-controls">
-                      <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
-                      <span className="box-size-label">{boxSize}px</span>
-                      <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
-                    </div>
-                    <div className="action-buttons">
-                      <button className="secondary" onClick={retakeImage}>
-                        Retake
-                      </button>
-                      <button className="primary" onClick={handleSampleFromBox} disabled={isLoading}>
-                        {isLoading ? <Loader2 size={18} className="spinning" /> : <Check size={18} />}
-                        Confirm Color
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
+            {/* TEST_DETECTION stage */}
             {setupStage === STAGES.TEST_DETECTION && (
-              <div id="setup-test-detection">
-                <div className="color-swatches-row">
-                  <div className="color-preview compact">
-                    <div className="swatch-circle sampled" style={{ backgroundColor: markerColor?.rgb }}></div>
-                    <span>Marker</span>
-                  </div>
-                  <div className="color-preview compact">
-                    <div className="swatch-circle sampled" style={{ backgroundColor: smallBallColor?.rgb }}></div>
-                    <span>Ball</span>
-                  </div>
-                </div>
-                <button
-                  className="primary"
-                  onClick={handleTestDetection}
-                  disabled={isLoading}
-                >
-                  {isLoading ? <Loader2 size={18} className="spinning" /> : <TestTube2 size={18} />}
-                  Test Detection
-                </button>
-              </div>
+              <button
+                className="sidebar-btn primary"
+                onClick={handleTestDetection}
+                disabled={isLoading}
+              >
+                {isLoading ? <Loader2 size={18} className="spinning" /> : <TestTube2 size={20} />}
+              </button>
             )}
 
+            {/* READY stage */}
             {setupStage === STAGES.READY && (
-              <div id="setup-ready">
-                <div className="detection-success">
-                  <Check size={24} className="success-icon" />
-                  <span>Detection verified!</span>
-                </div>
-                <button className="primary" onClick={() => setScreen('record')}>
-                  <Video size={18} />
-                  Start Recording
-                </button>
-              </div>
-            )}
-
-            {setupResult && setupStage > STAGES.MARKER_TAP && setupStage < STAGES.READY && (
-              <p id="setup-result" className="success">
-                <Check size={16} /> {setupResult}
-              </p>
-            )}
-
-            {error && (
-              <p id="setup-error" className="error">
-                <AlertTriangle size={16} /> {error}
-              </p>
+              <button className="sidebar-btn record" onClick={() => setScreen('record')}>
+                <Video size={20} />
+              </button>
             )}
           </div>
-        </div>
+
+          {/* Minimal bottom info */}
+          <div className="bottom-info">
+            {/* Color preview when sampling */}
+            {previewColor && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP) && (
+              <div className="color-chip" style={{ background: `rgba(${previewColor.r}, ${previewColor.g}, ${previewColor.b}, 0.3)` }}>
+                <div style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 4,
+                  backgroundColor: previewColor.rgb,
+                  border: '1px solid rgba(255,255,255,0.3)'
+                }} />
+                <span>{previewColor.r},{previewColor.g},{previewColor.b}</span>
+              </div>
+            )}
+
+            {/* Distance input for marker distance stage */}
+            {setupStage === STAGES.MARKER_DISTANCE && (
+              <div className="distance-chip">
+                <input
+                  type="number"
+                  value={markerDistance}
+                  onChange={(e) => setMarkerDistance(e.target.value)}
+                  placeholder="10"
+                />
+                <span>cm</span>
+              </div>
+            )}
+
+            {/* Stage hints */}
+            {setupStage === STAGES.MARKER_TAP && !capturedImage && (
+              <span className="stage-hint">Capture marker</span>
+            )}
+            {setupStage === STAGES.MARKER_TAP && capturedImage && (
+              <span className="stage-hint">Drag box to marker</span>
+            )}
+            {setupStage === STAGES.SMALL_BALL_TAP && !capturedImage && (
+              <span className="stage-hint">Capture ball</span>
+            )}
+            {setupStage === STAGES.SMALL_BALL_TAP && capturedImage && (
+              <span className="stage-hint">Drag box to ball</span>
+            )}
+            {setupStage === STAGES.MARKER_DISTANCE && (
+              <span className="stage-hint">Enter distance, tap detect</span>
+            )}
+            {setupStage === STAGES.MARKERS_DETECTED && (
+              <span className="success-chip"><Check size={12} /> {setupResult}</span>
+            )}
+            {setupStage === STAGES.TEST_DETECTION && (
+              <span className="stage-hint">Tap to test detection</span>
+            )}
+            {setupStage === STAGES.READY && (
+              <span className="success-chip"><Check size={12} /> Ready to record</span>
+            )}
+
+            {/* Error display */}
+            {error && <span className="error-chip">{error}</span>}
+          </div>
+        </>
       )}
 
       {testResult && testResult.annotated_image && setupStage === STAGES.TEST_DETECTION && (
@@ -981,38 +921,45 @@ function App() {
       )}
 
       {screen === 'record' && (
-        <div id="record-ui" className="overlay-ui record-layout">
-          <div className="recording-stats-panel">
-            <div className="stat-item timer">
-              <span className="stat-value">{timer}</span>
-            </div>
-            <div className="stat-item">
-              <CircleDot size={14} className="stat-icon" />
-              <span className="stat-value">{frameCount}</span>
-              <span className="stat-label">frames</span>
-            </div>
-            <div className="stat-item">
-              <Loader2 size={14} className={`stat-icon ${queueDepth > 0 ? 'spinning' : ''}`} />
-              <span className="stat-value">{queueDepth}</span>
-              <span className="stat-label">buffered</span>
+        <>
+          {/* Recording sidebar */}
+          <div className="recording-sidebar">
+            <div className="recording-timer">{timer}</div>
+            <div className="recording-stats">
+              <strong>{frameCount}</strong> frames<br />
+              <strong>{queueDepth}</strong> buffered
             </div>
             <div className={`network-indicator ${networkHealth}`}>
-              {networkHealth === 'good' ? <Wifi size={14} /> : <WifiOff size={14} />}
+              {networkHealth === 'good' ? <Wifi size={16} /> : <WifiOff size={16} />}
             </div>
+            <button
+              className={`sidebar-btn ${isRecording ? 'record' : 'primary'}`}
+              onClick={toggleRecording}
+              style={{ width: 56, height: 56, minWidth: 56, maxWidth: 56 }}
+            >
+              {isRecording ? <Square size={24} /> : <Video size={24} />}
+            </button>
           </div>
-          <button
-            id="btn-record-action"
-            className={`record-btn ${isRecording ? 'recording' : ''}`}
-            onClick={toggleRecording}
-          ></button>
-          <p className="hint">Tap button to {isRecording ? "stop" : "start"} recording</p>
-        </div>
+
+          {/* Recording bottom info */}
+          <div className="recording-bottom-info">
+            {isRecording && (
+              <div className="recording-indicator">
+                <div className="recording-dot" />
+                <span>Recording</span>
+              </div>
+            )}
+            {!isRecording && (
+              <span className="stage-hint">Tap button to start recording</span>
+            )}
+          </div>
+        </>
       )}
 
       {screen === 'processing' && (
-        <div id="processing-ui" className="overlay-ui full-center dark-bg">
-          <Loader2 size={48} className="spinning" />
-          <h2>Uploading Frames</h2>
+        <div className="processing-overlay">
+          <Loader2 size={48} className="spinning" style={{ color: 'var(--accent-primary)', marginBottom: 20 }} />
+          <h2 style={{ color: 'rgba(255,255,255,0.9)', marginBottom: 16 }}>Uploading Frames</h2>
           <div className="upload-progress">
             <div className="upload-progress-bar">
               <div
@@ -1027,9 +974,9 @@ function App() {
           <div className={`upload-health ${networkHealth}`}>
             {networkHealth === 'good' && <><Wifi size={14} /> Good</>}
             {networkHealth === 'slow' && <><WifiOff size={14} /> Slow</>}
-            {networkHealth === 'stalled' && <><AlertTriangle size={14} /> Stalled</>}
+            {networkHealth === 'stalled' && <><WifiOff size={14} /> Stalled</>}
           </div>
-          <button onClick={() => setScreen('camera')} className="secondary" style={{ marginTop: 20 }}>Finish</button>
+          <button onClick={() => setScreen('camera')} className="secondary" style={{ marginTop: 20, maxWidth: 200 }}>Finish</button>
         </div>
       )}
 

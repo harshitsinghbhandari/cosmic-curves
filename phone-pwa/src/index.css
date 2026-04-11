@@ -1334,3 +1334,310 @@ button.success-pulse {
   gap: 8px;
   margin-top: 12px;
 }
+
+/* ===================================
+   Sidebar Controls
+   =================================== */
+.sidebar {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  z-index: 30;
+  padding: 16px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 24px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.sidebar-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 150ms ease;
+  padding: 0;
+  margin: 0;
+  min-width: 44px;
+  max-width: 44px;
+}
+
+.sidebar-btn:active {
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.sidebar-btn.primary {
+  background: rgba(79, 195, 247, 0.4);
+  border-color: rgba(79, 195, 247, 0.6);
+  color: #4FC3F7;
+}
+
+.sidebar-btn.record {
+  background: rgba(239, 83, 80, 0.4);
+  border-color: rgba(239, 83, 80, 0.6);
+  color: #EF5350;
+}
+
+.sidebar-btn.success {
+  background: rgba(102, 187, 106, 0.4);
+  border-color: rgba(102, 187, 106, 0.6);
+  color: #66BB6A;
+}
+
+.sidebar .size-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+}
+
+/* Stage dots */
+.stage-dots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stage-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 200ms ease;
+}
+
+.stage-dots .dot.active {
+  background: #4FC3F7;
+  box-shadow: 0 0 8px rgba(79, 195, 247, 0.5);
+}
+
+.stage-dots .dot.completed {
+  background: #66BB6A;
+  box-shadow: 0 0 8px rgba(102, 187, 106, 0.5);
+}
+
+/* Sidebar divider */
+.sidebar-divider {
+  width: 24px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 0;
+}
+
+/* ===================================
+   Bottom Info Strip
+   =================================== */
+.bottom-info {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 70px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 25;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.color-chip {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.color-chip span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+  margin-left: 8px;
+}
+
+.distance-chip {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.distance-chip input {
+  width: 50px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.distance-chip input:focus {
+  outline: none;
+}
+
+.distance-chip span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 4px;
+}
+
+.error-chip {
+  font-size: 12px;
+  color: #EF5350;
+  background: rgba(239, 83, 80, 0.2);
+  padding: 6px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.success-chip {
+  font-size: 12px;
+  color: #66BB6A;
+  background: rgba(102, 187, 106, 0.2);
+  padding: 6px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stage-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 6px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ===================================
+   Recording Sidebar
+   =================================== */
+.recording-sidebar {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 24px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 30;
+}
+
+.recording-timer {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+.recording-stats {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.recording-stats strong {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+}
+
+.recording-sidebar .network-indicator {
+  width: 32px;
+  height: 32px;
+}
+
+/* Recording bottom info */
+.recording-bottom-info {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 70px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 25;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(239, 83, 80, 0.2);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(239, 83, 80, 0.4);
+}
+
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  background: #EF5350;
+  border-radius: 50%;
+  animation: pulse-recording 1s infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.recording-indicator span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #EF5350;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Processing overlay */
+.processing-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
