@@ -56,6 +56,12 @@ function App() {
   const [testResult, setTestResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Box selection state
+  const [boxPos, setBoxPos] = useState({ x: 150, y: 150 }); // Center position
+  const [boxSize, setBoxSize] = useState(50);
+  const [isDraggingBox, setIsDraggingBox] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const captureCanvasRef = useRef(null);
@@ -106,7 +112,9 @@ function App() {
           overlayCanvasRef.current.height = videoHeight;
           captureCanvasRef.current.width = videoWidth;
           captureCanvasRef.current.height = videoHeight;
-          setSetupPrompt('Tap on one of your markers');
+          // Set initial box position to center of video
+          setBoxPos({ x: videoWidth / 2, y: videoHeight / 2 });
+          setSetupPrompt('Position box over marker');
           setScreen('camera');
         };
       }
@@ -175,7 +183,128 @@ function App() {
     return { r, g, b, rgb: `rgb(${r}, ${g}, ${b})` };
   };
 
-  const handleCanvasTap = (e) => {
+  // Sample average color from the selection box
+  const sampleColorFromBox = () => {
+    const video = videoRef.current;
+    const canvas = overlayCanvasRef.current;
+    const captureCanvas = captureCanvasRef.current;
+    if (!video || !canvas || !captureCanvas) return null;
+
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+    // Calculate box bounds in canvas coordinates
+    const halfSize = boxSize / 2;
+    const x1 = Math.max(0, Math.floor(boxPos.x - halfSize));
+    const y1 = Math.max(0, Math.floor(boxPos.y - halfSize));
+    const x2 = Math.min(captureCanvas.width, Math.floor(boxPos.x + halfSize));
+    const y2 = Math.min(captureCanvas.height, Math.floor(boxPos.y + halfSize));
+
+    const width = x2 - x1;
+    const height = y2 - y1;
+    if (width <= 0 || height <= 0) return null;
+
+    const imgData = captureCtx.getImageData(x1, y1, width, height).data;
+
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < imgData.length; i += 4) {
+      r += imgData[i];
+      g += imgData[i + 1];
+      b += imgData[i + 2];
+    }
+    const count = imgData.length / 4;
+    r = Math.round(r / count);
+    g = Math.round(g / count);
+    b = Math.round(b / count);
+
+    return { r, g, b, rgb: `rgb(${r}, ${g}, ${b})` };
+  };
+
+  // Draw the selection box overlay
+  const drawBoxOverlay = useCallback(() => {
+    const canvas = overlayCanvasRef.current;
+    const captureCanvas = captureCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !captureCanvas || !video) return;
+    const ctx = canvas.getContext('2d');
+
+    // Only draw box during marker selection stages
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+
+    const halfSize = boxSize / 2;
+    const x = boxPos.x - halfSize;
+    const y = boxPos.y - halfSize;
+
+    // Draw box outline with glow effect
+    ctx.shadowColor = '#00FF00';
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = '#00FF00';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, boxSize, boxSize);
+    ctx.shadowBlur = 0;
+
+    // Draw crosshair
+    ctx.beginPath();
+    ctx.moveTo(boxPos.x - 15, boxPos.y);
+    ctx.lineTo(boxPos.x + 15, boxPos.y);
+    ctx.moveTo(boxPos.x, boxPos.y - 15);
+    ctx.lineTo(boxPos.x, boxPos.y + 15);
+    ctx.stroke();
+
+    // Sample and show current color preview
+    const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+    captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+    const x1 = Math.max(0, Math.floor(boxPos.x - halfSize));
+    const y1 = Math.max(0, Math.floor(boxPos.y - halfSize));
+    const sampleWidth = Math.min(boxSize, captureCanvas.width - x1);
+    const sampleHeight = Math.min(boxSize, captureCanvas.height - y1);
+
+    if (sampleWidth > 0 && sampleHeight > 0) {
+      const imgData = captureCtx.getImageData(x1, y1, sampleWidth, sampleHeight).data;
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < imgData.length; i += 4) {
+        r += imgData[i];
+        g += imgData[i + 1];
+        b += imgData[i + 2];
+      }
+      const count = imgData.length / 4;
+      r = Math.round(r / count);
+      g = Math.round(g / count);
+      b = Math.round(b / count);
+
+      // Draw color swatch above the box
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(x, y - 35, 30, 25);
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y - 35, 30, 25);
+
+      // Draw size label next to swatch
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(`${boxSize}px`, x + 36, y - 18);
+    }
+  }, [boxPos, boxSize, setupStage]);
+
+  // Update box overlay continuously
+  useEffect(() => {
+    if (screen !== 'camera') return;
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+
+    const interval = setInterval(() => {
+      const canvas = overlayCanvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBoxOverlay();
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [screen, setupStage, drawBoxOverlay]);
+
+  // Handle touch/mouse start for box dragging
+  const handlePointerDown = (e) => {
     if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
 
     const canvas = overlayCanvasRef.current;
@@ -183,16 +312,56 @@ function App() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
-    const tapX = e.clientX - rect.left;
-    const tapY = e.clientY - rect.top;
+    const pointerX = (e.clientX - rect.left) * scaleX;
+    const pointerY = (e.clientY - rect.top) * scaleY;
 
-    setRipple({ x: tapX, y: tapY, id: Date.now() });
-    setTimeout(() => setRipple(null), 600);
+    // Start dragging - set offset from box center
+    setIsDraggingBox(true);
+    setDragOffset({ x: pointerX - boxPos.x, y: pointerY - boxPos.y });
     triggerHaptic();
+  };
 
-    const x = tapX * scaleX;
-    const y = tapY * scaleY;
-    const color = sampleColorAtPoint(x, y);
+  // Handle touch/mouse move for box dragging
+  const handlePointerMove = (e) => {
+    if (!isDraggingBox) return;
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+
+    const canvas = overlayCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const pointerX = (e.clientX - rect.left) * scaleX;
+    const pointerY = (e.clientY - rect.top) * scaleY;
+
+    // Update box position
+    const halfSize = boxSize / 2;
+    const newX = Math.max(halfSize, Math.min(canvas.width - halfSize, pointerX - dragOffset.x));
+    const newY = Math.max(halfSize, Math.min(canvas.height - halfSize, pointerY - dragOffset.y));
+
+    setBoxPos({ x: newX, y: newY });
+  };
+
+  // Handle touch/mouse end for box dragging
+  const handlePointerUp = () => {
+    setIsDraggingBox(false);
+  };
+
+  // Handle box size change
+  const handleBoxSizeChange = (delta) => {
+    setBoxSize(prev => Math.max(30, Math.min(60, prev + delta)));
+    triggerHaptic();
+  };
+
+  // Sample color from box and proceed
+  const handleSampleFromBox = () => {
+    const color = sampleColorFromBox();
+    if (!color) {
+      setError('Failed to sample color');
+      return;
+    }
+
+    triggerHaptic();
 
     if (setupStage === STAGES.MARKER_TAP) {
       setMarkerColor(color);
@@ -508,7 +677,11 @@ function App() {
           <canvas
             ref={overlayCanvasRef}
             id="overlayCanvas"
-            onPointerDown={handleCanvasTap}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            style={{ touchAction: 'none' }}
           ></canvas>
           {ripple && (
             <div
@@ -557,15 +730,16 @@ function App() {
 
             {setupStage === STAGES.MARKER_TAP && (
               <div id="setup-marker-tap">
-                <p className="hint-text">Point camera at markers and tap one</p>
-                {markerColor && (
-                  <div className="color-preview">
-                    <div className="swatch-circle" style={{ backgroundColor: markerColor.rgb }}>
-                      <Check size={12} />
-                    </div>
-                    <span>Marker color</span>
-                  </div>
-                )}
+                <p className="hint-text">Drag the green box over a marker</p>
+                <div className="box-controls">
+                  <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
+                  <span className="box-size-label">{boxSize}px</span>
+                  <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
+                </div>
+                <button className="primary sample-btn" onClick={handleSampleFromBox}>
+                  <Crosshair size={18} />
+                  Sample Color
+                </button>
               </div>
             )}
 
@@ -610,16 +784,16 @@ function App() {
 
             {setupStage === STAGES.SMALL_BALL_TAP && (
               <div id="setup-small-ball">
-                {smallBallColor ? (
-                  <div className="color-preview">
-                    <div className="swatch-circle sampled" style={{ backgroundColor: smallBallColor.rgb }}>
-                      <Check size={12} />
-                    </div>
-                    <span>Ball color</span>
-                  </div>
-                ) : (
-                  <p className="hint-text">Tap on the small tracking ball</p>
-                )}
+                <p className="hint-text">Drag the green box over the small ball</p>
+                <div className="box-controls">
+                  <button className="size-btn" onClick={() => handleBoxSizeChange(-5)}>−</button>
+                  <span className="box-size-label">{boxSize}px</span>
+                  <button className="size-btn" onClick={() => handleBoxSizeChange(5)}>+</button>
+                </div>
+                <button className="primary sample-btn" onClick={handleSampleFromBox} disabled={isLoading}>
+                  {isLoading ? <Loader2 size={18} className="spinning" /> : <CircleDot size={18} />}
+                  Sample Ball Color
+                </button>
               </div>
             )}
 

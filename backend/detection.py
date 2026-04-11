@@ -21,8 +21,8 @@ TARGET_FRAMES = 25
 MIN_VALID_FRAMES = 10
 
 # Marker detection thresholds
-MARKER_MIN_AREA = 200
-MARKER_MAX_AREA = 50000
+MARKER_MIN_AREA = 100  # Lowered to catch smaller markers
+MARKER_MAX_AREA = 80000  # Increased for larger markers
 MARKER_SIZE_TOLERANCE = 0.5  # Allow 50% size difference between markers          
 
 def _get_image(image_input):
@@ -88,10 +88,10 @@ def detect_color_markers(
     # Binary mask of similar pixels
     mask = (dist < threshold).astype(np.uint8) * 255
 
-    # Morphology to clean up noise
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    # Morphology to clean up noise (OPEN removes small noise, CLOSE fills gaps)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
     # Find contours
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
