@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CONFIG } from './config';
 import {
   Crosshair,
-  TestTube2,
   Video,
   Check,
   Loader2,
@@ -31,8 +30,7 @@ const STAGES = {
   MARKERS_DETECTED: 2,// Show marker line overlay (auto-advance)
   SMALL_BALL_TAP: 3,  // Tap on small ball to sample color
   BIG_BALL_TAP: 4,    // Tap on big ball to sample color
-  TEST_DETECTION: 5,  // Test detection preview
-  READY: 6            // Ready to record
+  READY: 5            // Ready to record
 };
 
 // Stage labels for UI
@@ -42,7 +40,6 @@ const STAGE_LABELS = {
   [STAGES.MARKERS_DETECTED]: { title: 'Calibration Markers', subtitle: 'Markers detected!' },
   [STAGES.SMALL_BALL_TAP]: { title: 'Small Ball', subtitle: 'Sample small ball color' },
   [STAGES.BIG_BALL_TAP]: { title: 'Big Ball', subtitle: 'Sample big ball color' },
-  [STAGES.TEST_DETECTION]: { title: 'Test Detection', subtitle: 'Verify both balls' },
   [STAGES.READY]: { title: 'Ready', subtitle: 'Start recording' },
 };
 
@@ -655,10 +652,9 @@ function App() {
       const payload = { big_ball_color: { r: color.r, g: color.g, b: color.b } };
       await api('/setup', 'POST', payload);
 
-      // Advance to test detection
-      setSetupStage(STAGES.TEST_DETECTION);
-      setSetupResult('Big ball color set');
-      startPreviewLoop();
+      // Go directly to READY stage
+      setSetupStage(STAGES.READY);
+      setSetupResult('Setup complete');
 
     } catch (e) {
       setError(e.message);
@@ -886,7 +882,7 @@ function App() {
           <div className="sidebar">
             {/* Stage indicator dots */}
             <div className="stage-dots">
-              {[0, 1, 2, 3, 4, 5, 6].map(i => (
+              {[0, 1, 2, 3, 4, 5].map(i => (
                 <div
                   key={i}
                   className={`dot ${setupStage > i ? 'completed' : ''} ${setupStage === i ? 'active' : ''}`}
@@ -948,23 +944,6 @@ function App() {
               <button className="sidebar-btn success" disabled>
                 <Check size={20} />
               </button>
-            )}
-
-            {/* TEST_DETECTION stage */}
-            {setupStage === STAGES.TEST_DETECTION && (
-              <>
-                <button
-                  className="sidebar-btn primary"
-                  onClick={handleTestDetection}
-                  disabled={isLoading}
-                >
-                  {isLoading ? <Loader2 size={18} className="spinning" /> : <TestTube2 size={20} />}
-                </button>
-                <div className="sidebar-divider" />
-                <button className="sidebar-btn" onClick={retryBigBall} title="Retry big ball">
-                  <RotateCcw size={16} />
-                </button>
-              </>
             )}
 
             {/* READY stage */}
@@ -1035,9 +1014,6 @@ function App() {
             {setupStage === STAGES.MARKERS_DETECTED && (
               <span className="success-chip"><Check size={12} /> {setupResult}</span>
             )}
-            {setupStage === STAGES.TEST_DETECTION && (
-              <span className="stage-hint">🧪 Tap to test detection</span>
-            )}
             {setupStage === STAGES.READY && (
               <span className="success-chip"><Check size={12} /> Ready to record</span>
             )}
@@ -1099,56 +1075,6 @@ function App() {
             <button className="secondary" onClick={() => setMarkerPreview(null)}>
               Retry
             </button>
-          </div>
-        </div>
-      )}
-
-      {testResult && testResult.annotated_image && setupStage === STAGES.TEST_DETECTION && (
-        <div className="test-preview-modal">
-          <div className={`test-preview-content ${testResult.success ? 'success' : 'failure'}`}>
-            <button className="close-btn" onClick={() => setTestResult(null)}>
-              <X size={20} />
-            </button>
-            <img
-              src={`data:image/jpeg;base64,${testResult.annotated_image}`}
-              alt="Detection preview"
-              className="preview-image"
-            />
-            <div className="preview-status">
-              {testResult.success ? (
-                <>
-                  <Check size={20} className="status-icon success" />
-                  <span>Both balls detected!</span>
-                </>
-              ) : (
-                <>
-                  <AlertTriangle size={20} className="status-icon error" />
-                  <span>Detection incomplete</span>
-                </>
-              )}
-            </div>
-            <div className="preview-details">
-              <div className={`detail-item ${testResult.small_ball?.detected ? 'detected' : 'not-detected'}`}>
-                Small Ball: {testResult.small_ball?.detected ? 'Found' : 'Not found'}
-              </div>
-              <div className={`detail-item ${testResult.big_ball?.detected ? 'detected' : 'not-detected'}`}>
-                Big Ball: {testResult.big_ball?.detected ? 'Found' : 'Not found'}
-              </div>
-            </div>
-            {testResult.success && (
-              <button className="primary" onClick={() => {
-                setTestResult(null);
-                setSetupStage(STAGES.READY);
-                setSetupPrompt('Detection successful! Ready to record.');
-              }}>
-                Continue
-              </button>
-            )}
-            {!testResult.success && (
-              <button className="secondary" onClick={() => setTestResult(null)}>
-                Try Again
-              </button>
-            )}
           </div>
         </div>
       )}
