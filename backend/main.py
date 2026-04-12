@@ -36,7 +36,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 
-from session import sessions, SessionState, get_session_by_code, clean_old_sessions
+from session import sessions, SessionState, get_session_by_code, clean_old_sessions, set_session
 from storage import init_storage, get_all_runs, get_run_by_id, append_run
 from calibration import process_calibration_frame, process_calibration_with_markers
 from detection import (
@@ -151,7 +151,7 @@ def new_session():
             session_code=session_code,
             frames_dir=frames_dir
         )
-        sessions[session_id] = state
+        set_session(session_id, state)
         
         base_url = PHONE_PWA_URL
         # New unified URL structure: cosmic-curves.vercel.app/phone?session=XXXXXX
@@ -553,6 +553,11 @@ def run_pipeline(session_code: str):
         all_frame_results = []  # Store ALL frame detection results for debug
         filenames = sorted(os.listdir(state.frames_dir))
 
+        # Check for empty frames directory
+        if not filenames:
+            raise ValueError("No frames found in session directory")
+
+        total_files = len(filenames)
         for i, fname in enumerate(filenames):
             if fname.endswith(".jpg"):
                 filepath = os.path.join(state.frames_dir, fname)
@@ -670,7 +675,7 @@ def run_pipeline(session_code: str):
                         "filepath": filepath
                     })
 
-            state.progress = 0.1 + (0.3 * (i/len(filenames)))
+            state.progress = 0.1 + (0.3 * (i / total_files))
 
         # Store all frame results in session state for frontend access
         state.all_frame_results = all_frame_results
@@ -706,6 +711,8 @@ def run_pipeline(session_code: str):
         # Get frame dimensions from first selected frame
         np_arr = np.fromfile(selected_frames[0]["filepath"], dtype=np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError(f"Failed to decode frame: {selected_frames[0]['filepath']}")
         frame_height, frame_width = img.shape[:2]
 
         # Detect big ball to use as origin (0,0)
@@ -737,6 +744,11 @@ def run_pipeline(session_code: str):
 
         # Transform coordinates using calibration axes with big ball as origin
         coordinates = []
+
+        # Safety check for px_per_cm
+        if not state.px_per_cm or state.px_per_cm <= 0:
+            raise ValueError("Invalid px_per_cm calibration value")
+
         for f in selected_frames:
             # Relative position from origin (in pixels)
             rel_px_x = f["x_px"] - origin_x
@@ -1135,7 +1147,7 @@ async def debug_test_pipeline(background_tasks: BackgroundTasks):
             session_code=session_code,
             frames_dir=frames_dir
         )
-        sessions[session_id] = state
+        set_session(session_id, state)
 
         # 2. Extract frames from the real video
         video_path = "IMG_0982.MOV"

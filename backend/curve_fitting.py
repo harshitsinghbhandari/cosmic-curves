@@ -80,7 +80,18 @@ def fit_curves(coordinates: list) -> dict:
                 "display": f"{A:.3f}x² + {B:.3f}xy + {C:.3f}y² + {D:.3f}x + {E:.3f}y + {F:.3f} = 0"
             }
         }
-    
+
+    # Determine winning curve by minimum residual
+    winning_curve = min(results.keys(), key=lambda k: results[k]['residual'])
+
+    # Build final result with winning_curve and residuals summary
+    return {
+        "winning_curve": winning_curve,
+        "equation": results[winning_curve]["equation"],
+        "residuals": {k: results[k]["residual"] for k in results},
+        "all_fits": results
+    }
+
 
 def draw_physics_overlay(image, result, origin_x, origin_y, px_per_cm, coordinates):
     """
@@ -127,7 +138,11 @@ def draw_physics_overlay(image, result, origin_x, origin_y, px_per_cm, coordinat
             qa = C
             qb = B * x + E
             qc = A * x**2 + D * x + F
-            
+
+            # Skip if qa is zero (degenerate conic)
+            if abs(qa) < 1e-10:
+                continue
+
             det = qb**2 - 4 * qa * qc
             if det >= 0:
                 sqrt_det = np.sqrt(det)

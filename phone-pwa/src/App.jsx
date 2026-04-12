@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CONFIG } from './config';
 import {
   Crosshair,
-  CircleDot,
   TestTube2,
   Video,
   Check,
@@ -87,10 +86,16 @@ function App() {
   const captureCanvasRef = useRef(null);
   const recordIntervalRef = useRef(null);
   const previewIntervalRef = useRef(null);
+  const stageAdvanceTimeoutRef = useRef(null);
   const startTimeRef = useRef(0);
   const sendQueueRef = useRef([]);
   const isSendingRef = useRef(false);
   const lastQueueCheckRef = useRef({ time: 0, depth: 0 });
+  // Refs for preview loop closure (to avoid stale closure issues)
+  const isRecordingRef = useRef(false);
+  const screenRef = useRef('join');
+  const setupStageRef = useRef(STAGES.MARKER_TAP);
+  const markerResultRef = useRef(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -101,8 +106,16 @@ function App() {
     }
   }, []);
 
+  // Keep refs in sync with state for preview loop closure
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
+  useEffect(() => { setupStageRef.current = setupStage; }, [setupStage]);
+  useEffect(() => { markerResultRef.current = markerResult; }, [markerResult]);
+
   const api = useCallback(async (path, method = "GET", bodyObj = null, rawBody = null, extraHeaders = {}) => {
-    if (!sessionCode) return;
+    if (!sessionCode) {
+      throw new Error('No session code - please rejoin the session');
+    }
     const headers = { 'X-Session-Code': sessionCode, ...extraHeaders };
     if (bodyObj) headers['Content-Type'] = 'application/json';
 
@@ -147,7 +160,35 @@ function App() {
     if (screen === 'camera') {
       startCamera();
     }
+    // Clear preview interval when leaving camera screen
+    if (screen !== 'camera' && previewIntervalRef.current) {
+      clearInterval(previewIntervalRef.current);
+      previewIntervalRef.current = null;
+    }
   }, [screen, startCamera]);
+
+  // Cleanup all intervals and timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (previewIntervalRef.current) {
+        clearInterval(previewIntervalRef.current);
+        previewIntervalRef.current = null;
+      }
+      if (recordIntervalRef.current) {
+        clearInterval(recordIntervalRef.current);
+        recordIntervalRef.current = null;
+      }
+      if (stageAdvanceTimeoutRef.current) {
+        clearTimeout(stageAdvanceTimeoutRef.current);
+        stageAdvanceTimeoutRef.current = null;
+      }
+      // Stop camera stream
+      if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   const captureJPEG = () => {
     const video = videoRef.current;
@@ -453,6 +494,13 @@ function App() {
   const handleDetectMarkers = async () => {
     if (!markerColor || !markerDistance) return;
 
+    // Validate marker distance
+    const distance = parseFloat(markerDistance);
+    if (isNaN(distance) || distance <= 0 || distance > 1000) {
+      setError('Enter a valid distance (1-1000 cm)');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -494,17 +542,41 @@ function App() {
     drawMarkerOverlay(markerPreview);
     setMarkerPreview(null);
 
-    setTimeout(() => {
-      setSetupStage(STAGES.SMALL_BALL_TAP);
-      setSetupPrompt('Tap on the small ball');
+    // Clear any existing timeout before setting new one
+    if (stageAdvanceTimeoutRef.current) {
+      clearTimeout(stageAdvanceTimeoutRef.current);
+    }
+    stageAdvanceTimeoutRef.current = setTimeout(() => {
+      // Only advance if still on MARKERS_DETECTED stage
+      setSetupStage(prev => {
+        if (prev === STAGES.MARKERS_DETECTED) {
+          setSetupPrompt('Tap on the small ball');
+          return STAGES.SMALL_BALL_TAP;
+        }
+        return prev;
+      });
     }, 2000);
   };
 
   const drawMarkerOverlay = (result) => {
+    if (!overlayCanvasRef.current) return;
     const ctx = overlayCanvasRef.current.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
 
+    // Validate required fields exist
+    if (!result || !result.marker1 || !result.marker2 || !result.y_axis) {
+      console.warn('[drawMarkerOverlay] Missing required fields in result');
+      return;
+    }
+
     const { marker1, marker2, y_axis } = result;
+
+    // Validate marker pixel coordinates
+    if (typeof marker1.x_px !== 'number' || typeof marker1.y_px !== 'number' ||
+        typeof marker2.x_px !== 'number' || typeof marker2.y_px !== 'number') {
+      console.warn('[drawMarkerOverlay] Invalid marker coordinates');
+      return;
+    }
 
     ctx.strokeStyle = '#FF00FF';
     ctx.lineWidth = 3;
@@ -622,21 +694,23 @@ function App() {
   const startPreviewLoop = () => {
     if (previewIntervalRef.current) clearInterval(previewIntervalRef.current);
     previewIntervalRef.current = setInterval(async () => {
-      if (isRecording || screen !== 'camera') return;
-      if (setupStage < STAGES.SMALL_BALL_TAP) return;
+      // Use refs to avoid stale closure
+      if (isRecordingRef.current || screenRef.current !== 'camera') return;
+      if (setupStageRef.current < STAGES.SMALL_BALL_TAP) return;
 
       try {
         const blob = captureJPEG();
         const res = await api('/detect_preview', 'POST', null, blob, { 'Content-Type': 'image/jpeg' });
 
+        if (!overlayCanvasRef.current) return;
         const ctx = overlayCanvasRef.current.getContext('2d');
         ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
 
-        if (markerResult && setupStage >= STAGES.MARKERS_DETECTED) {
-          drawMarkerOverlay(markerResult);
+        if (markerResultRef.current && setupStageRef.current >= STAGES.MARKERS_DETECTED) {
+          drawMarkerOverlay(markerResultRef.current);
         }
 
-        if (res.detected) {
+        if (res && res.detected) {
           ctx.beginPath();
           ctx.arc(res.x_px, res.y_px, res.radius_px || 20, 0, Math.PI * 2);
           ctx.lineWidth = 4;
@@ -645,7 +719,10 @@ function App() {
           else ctx.strokeStyle = '#F44336';
           ctx.stroke();
         }
-      } catch (e) { }
+      } catch (e) {
+        // Log preview errors for debugging but don't show to user
+        console.warn('[Preview] Detection error:', e.message);
+      }
     }, PREVIEW_INTERVAL_MS);
   };
 

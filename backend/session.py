@@ -6,6 +6,7 @@ Each session tracks the progress, calibration, and recording status of a run.
 """
 
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 
@@ -96,13 +97,33 @@ class SessionState:
         return self.is_calibrated() and self.small_ball_bgr is not None
 
 
-# Global in-memory session store
+# Global in-memory session store with thread-safe access
 sessions: Dict[str, SessionState] = {}
+_sessions_lock = threading.RLock()
+
+
+def get_session(session_id: str) -> Optional[SessionState]:
+    """
+    Get a session by its UUID.
+    Thread-safe.
+    """
+    with _sessions_lock:
+        return sessions.get(session_id)
+
+
+def set_session(session_id: str, state: SessionState) -> None:
+    """
+    Store a session by its UUID.
+    Thread-safe.
+    """
+    with _sessions_lock:
+        sessions[session_id] = state
 
 
 def get_session_by_code(code: str) -> Optional[SessionState]:
     """
     Look up an active session by its short alphanumeric code.
+    Thread-safe.
 
     Args:
         code: 6-character session code.
@@ -111,22 +132,25 @@ def get_session_by_code(code: str) -> Optional[SessionState]:
         Optional[SessionState]: The session object if found.
     """
     code_upper = code.upper()
-    for state in sessions.values():
-        if state.session_code == code_upper:
-            return state
+    with _sessions_lock:
+        for state in sessions.values():
+            if state.session_code == code_upper:
+                return state
     return None
 
 
 def clean_old_sessions(max_age_hours: int = 4):
     """
     Remove sessions older than max_age_hours from the global store.
+    Thread-safe.
     """
     now = time.time()
     max_age_seconds = max_age_hours * 3600
-    expired_ids = [
-        sid for sid, state in sessions.items()
-        if now - state.created_at > max_age_seconds
-    ]
-    for sid in expired_ids:
-        del sessions[sid]
+    with _sessions_lock:
+        expired_ids = [
+            sid for sid, state in sessions.items()
+            if now - state.created_at > max_age_seconds
+        ]
+        for sid in expired_ids:
+            del sessions[sid]
     return len(expired_ids)

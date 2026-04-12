@@ -31,7 +31,10 @@ const PROCESSING_POLL_INTERVAL_MS = CONFIG.PROCESSING_POLL_INTERVAL_MS;
 
 function App() {
   const [screen, setScreen] = useState('home');
-  const [sessionCode, setSessionCode] = useState(localStorage.getItem('activeSession') || null);
+  const [sessionCode, setSessionCode] = useState(() => {
+    const stored = localStorage.getItem('activeSession');
+    return stored ? stored.toUpperCase() : null;
+  });
   const [qrCode, setQrCode] = useState('');
   const [status, setStatus] = useState({ status: 'idle' });
   const [frameCount, setFrameCount] = useState(0);
@@ -52,6 +55,11 @@ function App() {
   const pollTimerRef = useRef(null);
   const framesPollRef = useRef(null);
   const debugPollRef = useRef(null);
+  // Ref to avoid stale closure in polling
+  const screenRef = useRef(screen);
+
+  // Keep screenRef in sync with screen state (avoids stale closures in intervals)
+  useEffect(() => { screenRef.current = screen; }, [screen]);
 
   // Helper for API calls
   const api = async (path, method = "GET", body = null, headers = {}) => {
@@ -80,21 +88,26 @@ function App() {
           const res = await api('/status');
           setStatus(res);
 
-          if (screen === 'session' && (res.status === 'recording' || res.calibrated || res.colors_set)) {
+          // Use screenRef to get current screen value (avoid stale closure)
+          const currentScreen = screenRef.current;
+
+          if (currentScreen === 'session' && (res.status === 'recording' || res.calibrated || res.colors_set)) {
              setScreen('setup');
           }
 
-          if (screen === 'setup' && res.status === 'recording') {
+          if (currentScreen === 'setup' && res.status === 'recording') {
             setScreen('record');
           }
 
-          if (screen === 'record' && res.frame_count !== undefined) {
+          if (currentScreen === 'record' && res.frame_count !== undefined) {
             setFrameCount(res.frame_count);
           }
 
-          if (screen === 'processing') {
+          if (currentScreen === 'processing') {
             if (res.status === 'processing') {
-              setProgress({ value: res.progress, label: res.progress_label });
+              // Validate progress value is between 0 and 1
+              const progressVal = Math.max(0, Math.min(1, res.progress || 0));
+              setProgress({ value: progressVal, label: res.progress_label || 'Processing...' });
             } else if (res.status === 'done') {
               clearInterval(pollTimerRef.current);
               setProgress({ value: 1, label: 'Done' });
@@ -103,7 +116,7 @@ function App() {
               }, 800);
             } else if (res.status === 'error') {
               clearInterval(pollTimerRef.current);
-              setError(res.error);
+              setError(res.error || 'Unknown error');
             }
           }
         } catch (e) {
@@ -198,9 +211,11 @@ function App() {
 
   const loadResults = async () => {
     setScreen('results');
+    setError(''); // Clear any previous error
     try {
       const res = await api('/runs');
-      const sortedRuns = res.runs.reverse();
+      // Use spread to avoid mutating original array
+      const sortedRuns = [...res.runs].reverse();
       setRuns(sortedRuns);
       if (sortedRuns.length > 0) {
         setSelectedRun(sortedRuns[0]);
@@ -617,7 +632,7 @@ function App() {
             {error && (
               <>
                 <p className="error" role="alert">{error}</p>
-                <button onClick={() => setScreen('record')} className="danger" aria-label="Return to recording to try again">Try Again</button>
+                <button onClick={() => { setError(''); setScreen('record'); }} className="danger" aria-label="Return to recording to try again">Try Again</button>
               </>
             )}
             {debugInfo.small_ball_bgr && (
