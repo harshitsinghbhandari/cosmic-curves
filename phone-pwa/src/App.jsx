@@ -56,6 +56,7 @@ function App() {
   const [markerColor, setMarkerColor] = useState(null);
   const [markerDistance, setMarkerDistance] = useState('10');
   const [markerResult, setMarkerResult] = useState(null);
+  const [markerPreview, setMarkerPreview] = useState(null); // For showing detected markers preview
   const [smallBallColor, setSmallBallColor] = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -423,23 +424,32 @@ function App() {
 
       const res = await api('/calibrate', 'POST', payload);
 
-      setMarkerResult(res);
-      setSetupStage(STAGES.MARKERS_DETECTED);
-      setSetupPrompt('Markers detected! Now tap the small ball');
-      setSetupResult(`Scale: ${res.px_per_cm.toFixed(1)} px/cm`);
-
-      drawMarkerOverlay(res);
-
-      setTimeout(() => {
-        setSetupStage(STAGES.SMALL_BALL_TAP);
-        setSetupPrompt('Tap on the small ball');
-      }, 2000);
+      // Show preview with detected markers
+      setMarkerPreview(res);
 
     } catch (e) {
       setError(e.message);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Accept marker detection and proceed
+  const acceptMarkerDetection = () => {
+    if (!markerPreview) return;
+
+    setMarkerResult(markerPreview);
+    setSetupStage(STAGES.MARKERS_DETECTED);
+    setSetupPrompt('Markers detected! Now tap the small ball');
+    setSetupResult(`Scale: ${markerPreview.px_per_cm.toFixed(1)} px/cm`);
+
+    drawMarkerOverlay(markerPreview);
+    setMarkerPreview(null);
+
+    setTimeout(() => {
+      setSetupStage(STAGES.SMALL_BALL_TAP);
+      setSetupPrompt('Tap on the small ball');
+    }, 2000);
   };
 
   const drawMarkerOverlay = (result) => {
@@ -868,6 +878,61 @@ function App() {
             {error && <span className="error-chip">{error}</span>}
           </div>
         </>
+      )}
+
+      {/* Marker detection preview modal */}
+      {markerPreview && markerPreview.annotated_image && (
+        <div className="test-preview-modal">
+          <div className={`test-preview-content ${markerPreview.size_warning ? 'warning' : 'success'}`}>
+            <button className="close-btn" onClick={() => setMarkerPreview(null)}>
+              <X size={20} />
+            </button>
+            <img
+              src={`data:image/jpeg;base64,${markerPreview.annotated_image}`}
+              alt="Marker detection preview"
+              className="preview-image"
+            />
+            <div className="preview-status">
+              {markerPreview.size_warning ? (
+                <>
+                  <AlertTriangle size={20} className="status-icon warning" />
+                  <span>Size mismatch detected</span>
+                </>
+              ) : (
+                <>
+                  <Check size={20} className="status-icon success" />
+                  <span>Markers detected!</span>
+                </>
+              )}
+            </div>
+            <div className="preview-details">
+              <div className="detail-item">
+                M1: {markerPreview.marker1?.area}px
+              </div>
+              <div className="detail-item">
+                M2: {markerPreview.marker2?.area}px
+              </div>
+              <div className="detail-item">
+                Ratio: {markerPreview.size_ratio?.toFixed(2)}
+              </div>
+              <div className="detail-item">
+                Scale: {markerPreview.px_per_cm?.toFixed(1)} px/cm
+              </div>
+            </div>
+            {markerPreview.size_warning && (
+              <div className="warning-message">
+                <AlertTriangle size={14} />
+                {markerPreview.size_warning}
+              </div>
+            )}
+            <button className="primary" onClick={acceptMarkerDetection}>
+              {markerPreview.size_warning ? 'Use Anyway' : 'Continue'}
+            </button>
+            <button className="secondary" onClick={() => setMarkerPreview(null)}>
+              Retry
+            </button>
+          </div>
+        </div>
       )}
 
       {testResult && testResult.annotated_image && setupStage === STAGES.TEST_DETECTION && (

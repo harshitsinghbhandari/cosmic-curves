@@ -27,14 +27,18 @@ def process_calibration_with_markers(
     Returns:
         dict with:
             - px_per_cm: Pixels per centimeter ratio
-            - marker1: {x_px, y_px} of first marker
-            - marker2: {x_px, y_px} of second marker
+            - marker1: {x_px, y_px, area} of first marker
+            - marker2: {x_px, y_px, area} of second marker
             - y_axis: [dx, dy] normalized vector pointing up
             - x_axis: [dx, dy] normalized vector perpendicular to y
+            - size_warning: Warning message if markers have inconsistent sizes
+            - annotated_image: Base64 JPEG showing detected markers
 
     Raises:
-        ValueError: If markers cannot be detected or are invalid
+        ValueError: If markers cannot be detected
     """
+    import base64
+
     if marker_distance_cm <= 0:
         raise ValueError("Marker distance must be positive")
 
@@ -48,19 +52,65 @@ def process_calibration_with_markers(
     px_distance = result["px_distance"]
     px_per_cm = px_distance / marker_distance_cm
 
+    # Generate annotated image showing detected markers
+    np_arr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    annotated_base64 = ""
+
+    if img is not None:
+        m1 = result["marker1"]
+        m2 = result["marker2"]
+
+        # Draw circles around markers
+        radius1 = int(np.sqrt(m1["area"] / np.pi))
+        radius2 = int(np.sqrt(m2["area"] / np.pi))
+
+        # Marker 1 - cyan
+        cv2.circle(img, (m1["x_px"], m1["y_px"]), radius1 + 10, (255, 255, 0), 3)
+        cv2.putText(img, f"M1: {m1['area']}px", (m1["x_px"] - 40, m1["y_px"] - radius1 - 15),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+
+        # Marker 2 - yellow
+        cv2.circle(img, (m2["x_px"], m2["y_px"]), radius2 + 10, (0, 255, 255), 3)
+        cv2.putText(img, f"M2: {m2['area']}px", (m2["x_px"] - 40, m2["y_px"] - radius2 - 15),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+        # Draw line between markers
+        cv2.line(img, (m1["x_px"], m1["y_px"]), (m2["x_px"], m2["y_px"]), (255, 255, 255), 2)
+
+        # Show distance and ratio info
+        mid_x = (m1["x_px"] + m2["x_px"]) // 2
+        mid_y = (m1["y_px"] + m2["y_px"]) // 2
+        cv2.putText(img, f"{px_distance:.0f}px = {marker_distance_cm}cm",
+                   (mid_x - 60, mid_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        size_ratio = result.get("size_ratio", 1.0)
+        ratio_color = (0, 255, 0) if size_ratio > 0.5 else (0, 0, 255)
+        cv2.putText(img, f"Size ratio: {size_ratio:.2f}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, ratio_color, 2)
+
+        # Encode to base64
+        _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        annotated_base64 = base64.b64encode(buffer).decode('utf-8')
+
     return {
         "px_per_cm": px_per_cm,
         "marker1": {
             "x_px": result["marker1"]["x_px"],
-            "y_px": result["marker1"]["y_px"]
+            "y_px": result["marker1"]["y_px"],
+            "area": result["marker1"]["area"]
         },
         "marker2": {
             "x_px": result["marker2"]["x_px"],
-            "y_px": result["marker2"]["y_px"]
+            "y_px": result["marker2"]["y_px"],
+            "area": result["marker2"]["area"]
         },
         "y_axis": result["y_axis_vector"],
         "x_axis": result["x_axis_vector"],
-        "px_distance": px_distance
+        "px_distance": px_distance,
+        "size_ratio": result.get("size_ratio", 1.0),
+        "size_warning": result.get("size_warning"),
+        "annotated_image": annotated_base64
     }
 
 

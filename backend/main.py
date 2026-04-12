@@ -267,6 +267,8 @@ async def calibrate(request: Request, x_session_code: str = Header(None)):
         state.px_per_cm = result["px_per_cm"]
 
         logger.info(f"Session {x_session_code} calibrated with markers: {result['px_per_cm']:.2f} px/cm")
+        if result.get("size_warning"):
+            logger.warning(f"Session {x_session_code}: {result['size_warning']}")
 
         return {
             "ok": True,
@@ -274,7 +276,10 @@ async def calibrate(request: Request, x_session_code: str = Header(None)):
             "marker1": result["marker1"],
             "marker2": result["marker2"],
             "y_axis": result["y_axis"],
-            "x_axis": result["x_axis"]
+            "x_axis": result["x_axis"],
+            "size_ratio": result.get("size_ratio"),
+            "size_warning": result.get("size_warning"),
+            "annotated_image": result.get("annotated_image")
         }
     except Exception as e:
         logger.error(f"Calibration failed for session {x_session_code}: {str(e)}")

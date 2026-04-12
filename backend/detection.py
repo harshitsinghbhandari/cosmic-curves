@@ -146,14 +146,12 @@ def detect_color_markers(
     marker1 = candidates[0]
     marker2 = candidates[1]
 
-    # Validate similar size (within tolerance)
+    # Check size consistency (warn but don't fail)
     size_ratio = min(marker1["area"], marker2["area"]) / max(marker1["area"], marker2["area"])
+    size_warning = None
     if size_ratio < (1 - MARKER_SIZE_TOLERANCE):
-        return {
-            "detected": False,
-            "markers": [marker1, marker2],
-            "error": f"Markers have inconsistent sizes (ratio: {size_ratio:.2f})"
-        }
+        size_warning = f"Markers have inconsistent sizes (ratio: {size_ratio:.2f})"
+        print(f"[DEBUG detect_color_markers] WARNING: {size_warning}")
 
     # Determine Y-axis direction: "up" means marker with lower Y pixel value
     # In image coordinates, Y increases downward, so lower Y = higher on screen
@@ -191,7 +189,9 @@ def detect_color_markers(
         "marker2": marker2,
         "y_axis_vector": y_axis,
         "x_axis_vector": x_axis,
-        "px_distance": px_distance
+        "px_distance": px_distance,
+        "size_ratio": round(size_ratio, 2),
+        "size_warning": size_warning
     }
 
 
