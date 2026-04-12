@@ -633,7 +633,7 @@ function App() {
             <h3>Debug Frames ({debugInfo.debug_frame_indices.length} frames)</h3>
             {debugInfo.debug_frame_indices.length > 0 ? (
               <div className="debug-frame-grid">
-                {debugInfo.debug_frame_indices.slice(-16).map((idx) => {
+                {debugInfo.debug_frame_indices.slice(-12).map((idx) => {
                   const frameResult = debugInfo.frame_results.find(f => f.frame_index === idx);
                   return (
                     <div key={idx} className={`debug-frame-thumb ${frameResult?.detected ? 'detected' : 'not-detected'}`}
@@ -659,6 +659,43 @@ function App() {
                 <span>Waiting for debug frames...</span>
               </div>
             )}
+          </div>
+
+          {/* Frame Results Table */}
+          <div className="debug-table-section">
+            <h3>Frame Detection Results ({debugInfo.frame_results.length} frames)</h3>
+            <div className="debug-table-container">
+              <table className="debug-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Small Ball</th>
+                    <th>Score</th>
+                    <th>Position</th>
+                    <th>Radius</th>
+                    <th>Area</th>
+                    <th>Big Ball</th>
+                    <th>Big Pos</th>
+                    <th>Distance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {debugInfo.frame_results.slice(-30).map((f) => (
+                    <tr key={f.frame_index} className={f.detected ? 'row-detected' : 'row-not-detected'}>
+                      <td>{f.frame_index}</td>
+                      <td className={f.detected ? 'cell-yes' : 'cell-no'}>{f.detected ? '✓' : '✗'}</td>
+                      <td className={f.score > 0.1 ? 'cell-good' : 'cell-bad'}>{(f.score * 100).toFixed(1)}%</td>
+                      <td>{f.detected ? `(${f.small_x}, ${f.small_y})` : '-'}</td>
+                      <td>{f.small_radius || '-'}</td>
+                      <td>{f.small_area || '-'}</td>
+                      <td className={f.big_detected ? 'cell-yes' : 'cell-no'}>{f.big_detected ? '✓' : '✗'}</td>
+                      <td>{f.big_detected ? `(${f.big_x}, ${f.big_y})` : '-'}</td>
+                      <td>{f.distance_px || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Debug Logs */}

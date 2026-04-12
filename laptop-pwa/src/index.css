@@ -1710,3 +1710,84 @@ input:focus-visible {
   color: var(--accent-error);
   font-weight: 600;
 }
+
+/* ===================================
+   Debug Table
+   =================================== */
+.debug-table-section {
+  flex-shrink: 0;
+  max-height: 250px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.debug-table-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.debug-table-container {
+  flex: 1;
+  overflow: auto;
+}
+
+.debug-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.debug-table th {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 6px 8px;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.debug-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-muted);
+}
+
+.debug-table tr.row-detected {
+  background: rgba(102, 187, 106, 0.05);
+}
+
+.debug-table tr.row-not-detected {
+  background: rgba(239, 83, 80, 0.05);
+}
+
+.debug-table tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.debug-table .cell-yes {
+  color: var(--accent-success);
+  font-weight: 600;
+}
+
+.debug-table .cell-no {
+  color: var(--accent-error);
+}
+
+.debug-table .cell-good {
+  color: var(--accent-success);
+}
+
+.debug-table .cell-bad {
+  color: var(--accent-error);
+}

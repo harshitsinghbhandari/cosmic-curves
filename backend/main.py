@@ -542,18 +542,34 @@ def run_pipeline(session_code: str):
                 # Also detect big ball
                 bb_res = hough_detect_big_ball(image_bytes)
 
-                # Store ALL results for debug view
+                # Store ALL results for debug view with comprehensive details
+                small_radius = res.get("radius_px", 0)
+                small_area = int(3.14159 * small_radius * small_radius) if small_radius > 0 else 0
+
                 frame_result = {
                     "frame_index": frame_idx,
+                    # Small ball detection
                     "detected": res.get("detected", False),
                     "score": round(res.get("score", 0), 3) if res.get("detected") else 0,
-                    "x_px": res.get("x_px", 0),
-                    "y_px": res.get("y_px", 0),
-                    "radius_px": res.get("radius_px", 0),
-                    "big_ball_detected": bb_res.get("detected", False),
-                    "big_ball_x": bb_res.get("x_px", 0),
-                    "big_ball_y": bb_res.get("y_px", 0),
+                    "small_x": res.get("x_px", 0),
+                    "small_y": res.get("y_px", 0),
+                    "small_radius": small_radius,
+                    "small_area": small_area,
+                    # Big ball detection
+                    "big_detected": bb_res.get("detected", False),
+                    "big_x": bb_res.get("x_px", 0),
+                    "big_y": bb_res.get("y_px", 0),
+                    "big_radius": bb_res.get("radius_px", 0),
+                    # Distance between balls (if both detected)
+                    "distance_px": 0,
                 }
+
+                # Calculate distance between balls if both detected
+                if res.get("detected") and bb_res.get("detected"):
+                    dx = res["x_px"] - bb_res["x_px"]
+                    dy = res["y_px"] - bb_res["y_px"]
+                    frame_result["distance_px"] = int((dx*dx + dy*dy) ** 0.5)
+
                 all_frame_results.append(frame_result)
 
                 # Generate annotated debug frame for EVERY frame
