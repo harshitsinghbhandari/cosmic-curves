@@ -615,7 +615,12 @@ def run_pipeline(session_code: str):
         state.all_frame_results = all_frame_results
 
         detected_count = len([f for f in all_frame_results if f["detected"]])
+        scores = [f["score"] for f in all_frame_results if f["detected"]]
         state.add_log(f"Detection complete: {detected_count}/{len(all_frame_results)} frames detected small ball")
+        if scores:
+            state.add_log(f"Score range: min={min(scores):.3f}, max={max(scores):.3f}, avg={sum(scores)/len(scores):.3f}")
+        else:
+            state.add_log(f"WARNING: No frames with detected=True")
 
         state.progress = 0.4
         state.progress_label = "Selecting best frames..."

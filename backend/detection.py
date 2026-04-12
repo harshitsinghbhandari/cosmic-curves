@@ -16,7 +16,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 
 # Detection thresholds (kept for tuning if needed)
-MIN_DETECTION_SCORE = 0.40
+MIN_DETECTION_SCORE = 0.10  # Lowered from 0.40 - small balls have small areas
 TARGET_FRAMES = 25
 MIN_VALID_FRAMES = 10
 
