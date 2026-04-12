@@ -231,6 +231,54 @@ def hough_detect_big_ball(image_input):
         }
     return {"detected": False}
 
+def _compute_blob_score(contour, mask, dist_map) -> float:
+    """
+    Compute a quality score for a detected blob based on:
+    1. Circularity (how round is the shape) - 40% weight
+    2. Color match (average color distance of pixels) - 40% weight
+    3. Solidity (filled vs holey) - 20% weight
+
+    Returns a score from 0.0 to 1.0
+    """
+    area = cv2.contourArea(contour)
+    if area < 1:
+        return 0.0
+
+    # 1. Circularity: 4π × area / perimeter²  (1.0 = perfect circle)
+    perimeter = cv2.arcLength(contour, True)
+    if perimeter > 0:
+        circularity = (4 * np.pi * area) / (perimeter * perimeter)
+        circularity = min(1.0, circularity)  # Cap at 1.0
+    else:
+        circularity = 0.0
+
+    # 2. Color match: average distance of detected pixels (lower = better)
+    # Create a mask for just this contour
+    contour_mask = np.zeros(mask.shape, dtype=np.uint8)
+    cv2.drawContours(contour_mask, [contour], -1, 255, -1)
+
+    # Get average color distance within the contour
+    pixels_in_contour = dist_map[contour_mask > 0]
+    if len(pixels_in_contour) > 0:
+        avg_distance = np.mean(pixels_in_contour)
+        # Normalize: 0 distance = 1.0 score, 30+ distance = 0.0 score
+        color_score = max(0.0, 1.0 - (avg_distance / 30.0))
+    else:
+        color_score = 0.0
+
+    # 3. Solidity: contour area / convex hull area (1.0 = no holes/concavities)
+    hull = cv2.convexHull(contour)
+    hull_area = cv2.contourArea(hull)
+    if hull_area > 0:
+        solidity = area / hull_area
+    else:
+        solidity = 0.0
+
+    # Weighted combination
+    score = (0.4 * circularity) + (0.4 * color_score) + (0.2 * solidity)
+    return round(score, 3)
+
+
 def distance_mask_detect_small_ball(
     image_input,
     target_bgr: List[int],
@@ -269,14 +317,15 @@ def distance_mask_detect_small_ball(
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     best_candidate = None
-    max_area = 0
+    best_score = 0
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
         # Small ball area range: 2-2000 pixels
         if 2 < area < 2000:
-            if area > max_area:
-                max_area = area
+            score = _compute_blob_score(cnt, mask, dist)
+            if score > best_score:
+                best_score = score
                 (x, y), radius = cv2.minEnclosingCircle(cnt)
                 best_candidate = {
                     "detected": True,
@@ -284,7 +333,7 @@ def distance_mask_detect_small_ball(
                     "y_px": int(y),
                     "radius_px": int(radius),
                     "area": int(area),
-                    "score": min(1.0, area / 300.0)  # Score: area/300 (300px area = 100%)
+                    "score": score
                 }
 
     return best_candidate if best_candidate else {"detected": False}
@@ -328,14 +377,15 @@ def distance_mask_detect_big_ball(
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     best_candidate = None
-    max_area = 0
+    best_score = 0
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
         # Big ball area range: 500-50000 pixels (much larger than small ball)
         if 500 < area < 50000:
-            if area > max_area:
-                max_area = area
+            score = _compute_blob_score(cnt, mask, dist)
+            if score > best_score:
+                best_score = score
                 (x, y), radius = cv2.minEnclosingCircle(cnt)
                 best_candidate = {
                     "detected": True,
@@ -343,7 +393,7 @@ def distance_mask_detect_big_ball(
                     "y_px": int(y),
                     "radius_px": int(radius),
                     "area": int(area),
-                    "score": min(1.0, area / 5000.0)  # Score: area/5000 (5000px area = 100%)
+                    "score": score
                 }
 
     return best_candidate if best_candidate else {"detected": False}
