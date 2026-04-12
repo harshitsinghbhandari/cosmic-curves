@@ -1548,7 +1548,7 @@ input:focus-visible {
   height: 100%;
   padding: 20px;
   gap: 16px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .processing-header {
