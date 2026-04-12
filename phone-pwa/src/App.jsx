@@ -29,10 +29,22 @@ const PREVIEW_INTERVAL_MS = 200;
 const STAGES = {
   MARKER_TAP: 0,      // Tap on marker to sample color
   MARKER_DISTANCE: 1, // Enter distance and detect markers
-  MARKERS_DETECTED: 2,// Show marker line overlay
-  SMALL_BALL_TAP: 3,  // Tap on small ball
-  TEST_DETECTION: 4,  // Test detection preview
-  READY: 5            // Ready to record
+  MARKERS_DETECTED: 2,// Show marker line overlay (auto-advance)
+  SMALL_BALL_TAP: 3,  // Tap on small ball to sample color
+  BIG_BALL_TAP: 4,    // Tap on big ball to sample color
+  TEST_DETECTION: 5,  // Test detection preview
+  READY: 6            // Ready to record
+};
+
+// Stage labels for UI
+const STAGE_LABELS = {
+  [STAGES.MARKER_TAP]: { title: 'Calibration Markers', subtitle: 'Sample marker color' },
+  [STAGES.MARKER_DISTANCE]: { title: 'Calibration Markers', subtitle: 'Enter distance & detect' },
+  [STAGES.MARKERS_DETECTED]: { title: 'Calibration Markers', subtitle: 'Markers detected!' },
+  [STAGES.SMALL_BALL_TAP]: { title: 'Small Ball', subtitle: 'Sample small ball color' },
+  [STAGES.BIG_BALL_TAP]: { title: 'Big Ball', subtitle: 'Sample big ball color' },
+  [STAGES.TEST_DETECTION]: { title: 'Test Detection', subtitle: 'Verify both balls' },
+  [STAGES.READY]: { title: 'Ready', subtitle: 'Start recording' },
 };
 
 function App() {
@@ -58,6 +70,7 @@ function App() {
   const [markerResult, setMarkerResult] = useState(null);
   const [markerPreview, setMarkerPreview] = useState(null); // For showing detected markers preview
   const [smallBallColor, setSmallBallColor] = useState(null);
+  const [bigBallColor, setBigBallColor] = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -276,7 +289,7 @@ function App() {
 
   // Update preview color when box moves
   useEffect(() => {
-    if (capturedImage && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP)) {
+    if (capturedImage && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP || setupStage === STAGES.BIG_BALL_TAP)) {
       const color = sampleColorFromBox();
       setPreviewColor(color);
     }
@@ -288,8 +301,8 @@ function App() {
     const captureCanvas = captureCanvasRef.current;
     if (!overlayCanvas || !capturedImage) return;
 
-    // Only draw box during marker selection stages
-    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+    // Only draw box during color sampling stages
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP && setupStage !== STAGES.BIG_BALL_TAP) return;
 
     const ctx = overlayCanvas.getContext('2d');
 
@@ -322,14 +335,14 @@ function App() {
   // Update box overlay when box moves (only when image is captured)
   useEffect(() => {
     if (!capturedImage) return;
-    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP && setupStage !== STAGES.BIG_BALL_TAP) return;
     drawBoxOverlay();
   }, [capturedImage, boxPos, boxSize, setupStage, drawBoxOverlay]);
 
   // Handle touch/mouse start for box dragging
   const handlePointerDown = (e) => {
     if (!capturedImage) return; // Only drag when image is captured
-    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP && setupStage !== STAGES.BIG_BALL_TAP) return;
 
     const canvas = overlayCanvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -348,7 +361,7 @@ function App() {
   // Handle touch/mouse move for box dragging
   const handlePointerMove = (e) => {
     if (!isDraggingBox || !capturedImage) return;
-    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP) return;
+    if (setupStage !== STAGES.MARKER_TAP && setupStage !== STAGES.SMALL_BALL_TAP && setupStage !== STAGES.BIG_BALL_TAP) return;
 
     const canvas = overlayCanvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -394,12 +407,47 @@ function App() {
     if (setupStage === STAGES.MARKER_TAP) {
       setMarkerColor(color);
       setSetupStage(STAGES.MARKER_DISTANCE);
-      setSetupPrompt('Enter marker distance (cm)');
       setSetupResult('Marker color sampled');
     } else if (setupStage === STAGES.SMALL_BALL_TAP) {
       setSmallBallColor(color);
       submitSmallBallColor(color);
+    } else if (setupStage === STAGES.BIG_BALL_TAP) {
+      setBigBallColor(color);
+      submitBigBallColor(color);
     }
+  };
+
+  // Reset to retry marker detection
+  const retryMarkerDetection = () => {
+    setMarkerColor(null);
+    setMarkerResult(null);
+    setMarkerPreview(null);
+    setCapturedImage(null);
+    setPreviewColor(null);
+    setError('');
+    setSetupStage(STAGES.MARKER_TAP);
+
+    // Clear overlay
+    const ctx = overlayCanvasRef.current?.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
+  };
+
+  // Reset to retry small ball color
+  const retrySmallBall = () => {
+    setSmallBallColor(null);
+    setCapturedImage(null);
+    setPreviewColor(null);
+    setError('');
+    setSetupStage(STAGES.SMALL_BALL_TAP);
+  };
+
+  // Reset to retry big ball color
+  const retryBigBall = () => {
+    setBigBallColor(null);
+    setCapturedImage(null);
+    setPreviewColor(null);
+    setError('');
+    setSetupStage(STAGES.BIG_BALL_TAP);
   };
 
   const handleDetectMarkers = async () => {
@@ -516,9 +564,28 @@ function App() {
       const payload = { small_ball_color: { r: color.r, g: color.g, b: color.b } };
       await api('/setup', 'POST', payload);
 
+      // Advance to big ball stage
+      setSetupStage(STAGES.BIG_BALL_TAP);
+      setSetupResult('Small ball color set');
+
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const submitBigBallColor = async (color) => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const payload = { big_ball_color: { r: color.r, g: color.g, b: color.b } };
+      await api('/setup', 'POST', payload);
+
+      // Advance to test detection
       setSetupStage(STAGES.TEST_DETECTION);
-      setSetupPrompt('Small ball color set. Test detection?');
-      setSetupResult('Color sampled');
+      setSetupResult('Big ball color set');
       startPreviewLoop();
 
     } catch (e) {
@@ -742,7 +809,7 @@ function App() {
           <div className="sidebar">
             {/* Stage indicator dots */}
             <div className="stage-dots">
-              {[0, 1, 2, 3, 4].map(i => (
+              {[0, 1, 2, 3, 4, 5, 6].map(i => (
                 <div
                   key={i}
                   className={`dot ${setupStage > i ? 'completed' : ''} ${setupStage === i ? 'active' : ''}`}
@@ -750,8 +817,8 @@ function App() {
               ))}
             </div>
 
-            {/* MARKER_TAP or SMALL_BALL_TAP stages */}
-            {(setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP) && (
+            {/* MARKER_TAP, SMALL_BALL_TAP, or BIG_BALL_TAP stages - color sampling */}
+            {(setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP || setupStage === STAGES.BIG_BALL_TAP) && (
               <>
                 {!capturedImage ? (
                   <button className="sidebar-btn primary" onClick={captureStillImage}>
@@ -784,13 +851,19 @@ function App() {
 
             {/* MARKER_DISTANCE stage */}
             {setupStage === STAGES.MARKER_DISTANCE && (
-              <button
-                className="sidebar-btn primary"
-                onClick={handleDetectMarkers}
-                disabled={isLoading || !markerDistance}
-              >
-                {isLoading ? <Loader2 size={18} className="spinning" /> : <Crosshair size={20} />}
-              </button>
+              <>
+                <button
+                  className="sidebar-btn primary"
+                  onClick={handleDetectMarkers}
+                  disabled={isLoading || !markerDistance}
+                >
+                  {isLoading ? <Loader2 size={18} className="spinning" /> : <Crosshair size={20} />}
+                </button>
+                <div className="sidebar-divider" />
+                <button className="sidebar-btn" onClick={retryMarkerDetection}>
+                  <RotateCcw size={16} />
+                </button>
+              </>
             )}
 
             {/* MARKERS_DETECTED stage - auto advances */}
@@ -802,13 +875,19 @@ function App() {
 
             {/* TEST_DETECTION stage */}
             {setupStage === STAGES.TEST_DETECTION && (
-              <button
-                className="sidebar-btn primary"
-                onClick={handleTestDetection}
-                disabled={isLoading}
-              >
-                {isLoading ? <Loader2 size={18} className="spinning" /> : <TestTube2 size={20} />}
-              </button>
+              <>
+                <button
+                  className="sidebar-btn primary"
+                  onClick={handleTestDetection}
+                  disabled={isLoading}
+                >
+                  {isLoading ? <Loader2 size={18} className="spinning" /> : <TestTube2 size={20} />}
+                </button>
+                <div className="sidebar-divider" />
+                <button className="sidebar-btn" onClick={retryBigBall} title="Retry big ball">
+                  <RotateCcw size={16} />
+                </button>
+              </>
             )}
 
             {/* READY stage */}
@@ -819,10 +898,16 @@ function App() {
             )}
           </div>
 
+          {/* Stage title label */}
+          <div className="stage-label">
+            <span className="stage-title">{STAGE_LABELS[setupStage]?.title}</span>
+            <span className="stage-subtitle">{STAGE_LABELS[setupStage]?.subtitle}</span>
+          </div>
+
           {/* Minimal bottom info */}
           <div className="bottom-info">
             {/* Color preview when sampling */}
-            {previewColor && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP) && (
+            {previewColor && (setupStage === STAGES.MARKER_TAP || setupStage === STAGES.SMALL_BALL_TAP || setupStage === STAGES.BIG_BALL_TAP) && (
               <div className="color-chip" style={{ background: `rgba(${previewColor.r}, ${previewColor.g}, ${previewColor.b}, 0.3)` }}>
                 <div style={{
                   width: 20,
@@ -850,25 +935,31 @@ function App() {
 
             {/* Stage hints */}
             {setupStage === STAGES.MARKER_TAP && !capturedImage && (
-              <span className="stage-hint">Capture marker</span>
+              <span className="stage-hint">📷 Capture marker color</span>
             )}
             {setupStage === STAGES.MARKER_TAP && capturedImage && (
-              <span className="stage-hint">Drag box to marker</span>
+              <span className="stage-hint">👆 Drag box to marker</span>
             )}
             {setupStage === STAGES.SMALL_BALL_TAP && !capturedImage && (
-              <span className="stage-hint">Capture ball</span>
+              <span className="stage-hint">📷 Capture SMALL ball</span>
             )}
             {setupStage === STAGES.SMALL_BALL_TAP && capturedImage && (
-              <span className="stage-hint">Drag box to ball</span>
+              <span className="stage-hint">👆 Drag box to SMALL ball</span>
+            )}
+            {setupStage === STAGES.BIG_BALL_TAP && !capturedImage && (
+              <span className="stage-hint">📷 Capture BIG ball</span>
+            )}
+            {setupStage === STAGES.BIG_BALL_TAP && capturedImage && (
+              <span className="stage-hint">👆 Drag box to BIG ball</span>
             )}
             {setupStage === STAGES.MARKER_DISTANCE && (
-              <span className="stage-hint">Enter distance, tap detect</span>
+              <span className="stage-hint">📏 Enter distance, tap detect</span>
             )}
             {setupStage === STAGES.MARKERS_DETECTED && (
               <span className="success-chip"><Check size={12} /> {setupResult}</span>
             )}
             {setupStage === STAGES.TEST_DETECTION && (
-              <span className="stage-hint">Tap to test detection</span>
+              <span className="stage-hint">🧪 Tap to test detection</span>
             )}
             {setupStage === STAGES.READY && (
               <span className="success-chip"><Check size={12} /> Ready to record</span>
