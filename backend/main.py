@@ -43,6 +43,7 @@ from detection import (
     compute_hsv_ranges,
     hough_detect_big_ball,
     distance_mask_detect_small_ball,
+    distance_mask_detect_big_ball,
     detect_color_markers,
     MIN_DETECTION_SCORE,
     TARGET_FRAMES,
@@ -282,15 +283,19 @@ async def calibrate(request: Request, x_session_code: str = Header(None)):
 @app.post("/setup")
 async def setup(request: Request, x_session_code: str = Header(None)):
     """
-    Set the small ball color for detection.
+    Set ball colors for detection.
 
-    Accepts JSON:
-    {"small_ball_color": {"r": 167, "g": 235, "b": 156}}
+    Accepts JSON (both optional, at least one required):
+    {
+        "small_ball_color": {"r": 167, "g": 235, "b": 156},
+        "big_ball_color": {"r": 200, "g": 100, "b": 50}
+    }
 
     Returns:
     {
         "ok": true,
-        "small_ball_bgr": [156, 235, 167]
+        "small_ball_bgr": [156, 235, 167],
+        "big_ball_bgr": [50, 100, 200]
     }
     """
     try:
@@ -301,25 +306,37 @@ async def setup(request: Request, x_session_code: str = Header(None)):
             raise ValueError("Session not found")
 
         data = await request.json()
-        small_ball_color = data.get("small_ball_color", {})
+        small_ball_color = data.get("small_ball_color")
+        big_ball_color = data.get("big_ball_color")
 
-        if not small_ball_color:
-            raise ValueError("small_ball_color is required")
+        if not small_ball_color and not big_ball_color:
+            raise ValueError("At least one of small_ball_color or big_ball_color is required")
 
-        # Convert RGB to BGR
-        small_ball_bgr = [
-            small_ball_color.get("b", 0),
-            small_ball_color.get("g", 0),
-            small_ball_color.get("r", 0)
-        ]
+        result = {"ok": True}
 
-        state.small_ball_bgr = small_ball_bgr
+        # Set small ball color if provided
+        if small_ball_color:
+            small_ball_bgr = [
+                small_ball_color.get("b", 0),
+                small_ball_color.get("g", 0),
+                small_ball_color.get("r", 0)
+            ]
+            state.small_ball_bgr = small_ball_bgr
+            result["small_ball_bgr"] = small_ball_bgr
+            logger.info(f"Session {x_session_code}: Small ball BGR set to {small_ball_bgr}")
 
-        logger.info(f"Setup completed for session {x_session_code}. Small ball BGR: {small_ball_bgr}")
-        return {
-            "ok": True,
-            "small_ball_bgr": small_ball_bgr
-        }
+        # Set big ball color if provided
+        if big_ball_color:
+            big_ball_bgr = [
+                big_ball_color.get("b", 0),
+                big_ball_color.get("g", 0),
+                big_ball_color.get("r", 0)
+            ]
+            state.big_ball_bgr = big_ball_bgr
+            result["big_ball_bgr"] = big_ball_bgr
+            logger.info(f"Session {x_session_code}: Big ball BGR set to {big_ball_bgr}")
+
+        return result
 
     except Exception as e:
         logger.error(f"Setup failed for session {x_session_code}: {str(e)}")
@@ -381,8 +398,11 @@ async def test_detection(request: Request, x_session_code: str = Header(None)):
         # Detect small ball
         small_ball_result = distance_mask_detect_small_ball(body, target_bgr=state.small_ball_bgr)
 
-        # Detect big ball
-        big_ball_result = hough_detect_big_ball(body)
+        # Detect big ball - use color-based if big_ball_bgr is set, otherwise fallback to Hough
+        if state.big_ball_bgr:
+            big_ball_result = distance_mask_detect_big_ball(body, target_bgr=state.big_ball_bgr)
+        else:
+            big_ball_result = hough_detect_big_ball(body)
 
         # Create annotated image
         np_arr = np.frombuffer(body, np.uint8)
@@ -539,12 +559,17 @@ def run_pipeline(session_code: str):
                 # Track the small ball using specialized distance masking with session color
                 res = distance_mask_detect_small_ball(image_bytes, target_bgr=state.small_ball_bgr)
 
-                # Also detect big ball
-                bb_res = hough_detect_big_ball(image_bytes)
+                # Detect big ball - use color-based if big_ball_bgr is set, otherwise fallback to Hough
+                if state.big_ball_bgr:
+                    bb_res = distance_mask_detect_big_ball(image_bytes, target_bgr=state.big_ball_bgr)
+                else:
+                    bb_res = hough_detect_big_ball(image_bytes)
 
                 # Store ALL results for debug view with comprehensive details
                 small_radius = res.get("radius_px", 0)
-                small_area = int(3.14159 * small_radius * small_radius) if small_radius > 0 else 0
+                small_area = res.get("area", int(3.14159 * small_radius * small_radius) if small_radius > 0 else 0)
+                big_radius = bb_res.get("radius_px", 0)
+                big_area = bb_res.get("area", int(3.14159 * big_radius * big_radius) if big_radius > 0 else 0)
 
                 frame_result = {
                     "frame_index": frame_idx,
@@ -557,9 +582,11 @@ def run_pipeline(session_code: str):
                     "small_area": small_area,
                     # Big ball detection
                     "big_detected": bb_res.get("detected", False),
+                    "big_score": round(bb_res.get("score", 0), 3) if bb_res.get("detected") else 0,
                     "big_x": bb_res.get("x_px", 0),
                     "big_y": bb_res.get("y_px", 0),
-                    "big_radius": bb_res.get("radius_px", 0),
+                    "big_radius": big_radius,
+                    "big_area": big_area,
                     # Distance between balls (if both detected)
                     "distance_px": 0,
                 }
@@ -578,13 +605,24 @@ def run_pipeline(session_code: str):
                 if img is not None:
                     h, w = img.shape[:2]
 
-                    # Draw big ball if detected (magenta)
+                    # Draw big ball if detected (color based on score)
                     if bb_res.get("detected"):
                         bb_x, bb_y = bb_res["x_px"], bb_res["y_px"]
                         bb_r = bb_res.get("radius_px", 50)
-                        cv2.circle(img, (bb_x, bb_y), bb_r, (255, 0, 255), 3)
-                        cv2.putText(img, "BIG", (bb_x - 20, bb_y - bb_r - 10),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+                        bb_score = bb_res.get("score", 1.0)
+                        # Magenta color with intensity based on score
+                        if bb_score > 0.6:
+                            bb_color = (255, 0, 255)  # Bright magenta
+                        elif bb_score > 0.3:
+                            bb_color = (200, 0, 200)  # Medium magenta
+                        else:
+                            bb_color = (150, 0, 150)  # Dim magenta
+                        cv2.circle(img, (bb_x, bb_y), bb_r, bb_color, 3)
+                        cv2.putText(img, f"BIG {bb_score:.2f}", (bb_x - 30, bb_y - bb_r - 10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, bb_color, 2)
+                    else:
+                        cv2.putText(img, "NO BIG BALL", (10, 60),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 0, 150), 2)
 
                     # Draw small ball detection (color based on score)
                     if res.get("detected"):
@@ -603,11 +641,13 @@ def run_pipeline(session_code: str):
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                     else:
                         # No detection - draw red X
-                        cv2.putText(img, "NO SMALL BALL DETECTED", (10, 30),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                        cv2.putText(img, "NO SMALL BALL", (10, 30),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-                    # Add frame info overlay
-                    info_text = f"Frame {frame_idx} | Score: {frame_result['score']}"
+                    # Add frame info overlay with both scores
+                    small_score_str = f"S:{frame_result['score']:.2f}" if frame_result['detected'] else "S:--"
+                    big_score_str = f"B:{frame_result['big_score']:.2f}" if frame_result['big_detected'] else "B:--"
+                    info_text = f"#{frame_idx} | {small_score_str} | {big_score_str}"
                     cv2.putText(img, info_text, (10, h - 20),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
@@ -1014,6 +1054,7 @@ def get_debug_info(x_session_code: str = Header(...)):
             "frame_results": state.all_frame_results,
             "debug_frame_indices": debug_frames,
             "small_ball_bgr": state.small_ball_bgr,
+            "big_ball_bgr": state.big_ball_bgr,
             "px_per_cm": state.px_per_cm,
             "status": state.status,
             "progress": state.progress,

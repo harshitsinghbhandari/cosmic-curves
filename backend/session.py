@@ -58,6 +58,7 @@ class SessionState:
 
     # Detection colors
     small_ball_bgr: Optional[List[int]] = None
+    big_ball_bgr: Optional[List[int]] = None
 
     # Processing state
     status: str = "idle"

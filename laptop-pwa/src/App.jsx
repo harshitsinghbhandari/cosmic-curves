@@ -622,7 +622,8 @@ function App() {
             )}
             {debugInfo.small_ball_bgr && (
               <div className="debug-config">
-                <span>Target BGR: [{debugInfo.small_ball_bgr.join(', ')}]</span>
+                <span>Small BGR: [{debugInfo.small_ball_bgr.join(', ')}]</span>
+                {debugInfo.big_ball_bgr && <span>Big BGR: [{debugInfo.big_ball_bgr.join(', ')}]</span>}
                 {debugInfo.px_per_cm && <span>Scale: {debugInfo.px_per_cm.toFixed(1)} px/cm</span>}
               </div>
             )}
@@ -669,14 +670,17 @@ function App() {
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Small Ball</th>
-                    <th>Score</th>
-                    <th>Position</th>
-                    <th>Radius</th>
-                    <th>Area</th>
-                    <th>Big Ball</th>
-                    <th>Big Pos</th>
-                    <th>Distance</th>
+                    <th>Small</th>
+                    <th>S.Score</th>
+                    <th>S.Pos</th>
+                    <th>S.Rad</th>
+                    <th>S.Area</th>
+                    <th>Big</th>
+                    <th>B.Score</th>
+                    <th>B.Pos</th>
+                    <th>B.Rad</th>
+                    <th>B.Area</th>
+                    <th>Dist</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -689,7 +693,10 @@ function App() {
                       <td>{f.small_radius || '-'}</td>
                       <td>{f.small_area || '-'}</td>
                       <td className={f.big_detected ? 'cell-yes' : 'cell-no'}>{f.big_detected ? '✓' : '✗'}</td>
+                      <td className={f.big_score > 0.1 ? 'cell-good' : 'cell-bad'}>{f.big_score != null ? (f.big_score * 100).toFixed(1) + '%' : '-'}</td>
                       <td>{f.big_detected ? `(${f.big_x}, ${f.big_y})` : '-'}</td>
+                      <td>{f.big_radius || '-'}</td>
+                      <td>{f.big_area || '-'}</td>
                       <td>{f.distance_px || '-'}</td>
                     </tr>
                   ))}

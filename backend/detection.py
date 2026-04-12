@@ -246,33 +246,34 @@ def distance_mask_detect_small_ball(
         threshold: Color distance threshold (default 30)
 
     Returns:
-        dict with detection result including x_px, y_px, radius_px, score
+        dict with detection result including x_px, y_px, radius_px, score, area
     """
     img = _get_image(image_input)
     if img is None:
         return {"detected": False}
-    
+
     # Convert to float for precise distance calculation
     img_float = img.astype(np.float32)
     target = np.array(target_bgr, dtype=np.float32)
-    
+
     # L2 Norm (Euclidean Distance) in 3D color space
     dist = np.linalg.norm(img_float - target, axis=2)
-    
+
     # Binary mask of similar pixels
     mask = (dist < threshold).astype(np.uint8) * 255
-    
+
     # Morphology to clean up noise from shadows/texture
     kernel = np.ones((5, 5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    
+
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+
     best_candidate = None
     max_area = 0
-    
+
     for cnt in contours:
         area = cv2.contourArea(cnt)
+        # Small ball area range: 2-2000 pixels
         if 2 < area < 2000:
             if area > max_area:
                 max_area = area
@@ -282,9 +283,69 @@ def distance_mask_detect_small_ball(
                     "x_px": int(x),
                     "y_px": int(y),
                     "radius_px": int(radius),
-                    "score": min(1.0, area / 300.0) # Normalized score based on typical size
+                    "area": int(area),
+                    "score": min(1.0, area / 300.0)  # Score: area/300 (300px area = 100%)
                 }
-                
+
+    return best_candidate if best_candidate else {"detected": False}
+
+
+def distance_mask_detect_big_ball(
+    image_input,
+    target_bgr: List[int],
+    threshold: int = 35
+) -> Dict[str, Any]:
+    """
+    Detect the BIG ball using Euclidean Distance Masking.
+    Same logic as small ball but with larger area thresholds.
+
+    Args:
+        image_input: Raw JPEG bytes or numpy array
+        target_bgr: BGR color values [B, G, R] to detect (required)
+        threshold: Color distance threshold (default 35, slightly higher for big ball)
+
+    Returns:
+        dict with detection result including x_px, y_px, radius_px, score, area
+    """
+    img = _get_image(image_input)
+    if img is None:
+        return {"detected": False}
+
+    # Convert to float for precise distance calculation
+    img_float = img.astype(np.float32)
+    target = np.array(target_bgr, dtype=np.float32)
+
+    # L2 Norm (Euclidean Distance) in 3D color space
+    dist = np.linalg.norm(img_float - target, axis=2)
+
+    # Binary mask of similar pixels
+    mask = (dist < threshold).astype(np.uint8) * 255
+
+    # Morphology to clean up noise from shadows/texture
+    kernel = np.ones((7, 7), np.uint8)  # Larger kernel for big ball
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    best_candidate = None
+    max_area = 0
+
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        # Big ball area range: 500-50000 pixels (much larger than small ball)
+        if 500 < area < 50000:
+            if area > max_area:
+                max_area = area
+                (x, y), radius = cv2.minEnclosingCircle(cnt)
+                best_candidate = {
+                    "detected": True,
+                    "x_px": int(x),
+                    "y_px": int(y),
+                    "radius_px": int(radius),
+                    "area": int(area),
+                    "score": min(1.0, area / 5000.0)  # Score: area/5000 (5000px area = 100%)
+                }
+
     return best_candidate if best_candidate else {"detected": False}
 
 def detect_ball_in_frame(image_bytes: bytes, hsv_range: dict) -> dict:
