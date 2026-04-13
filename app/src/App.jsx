@@ -912,6 +912,46 @@ export default function App() {
     }
   }
 
+  // Default colors for quick setup
+  const DEFAULT_COLORS = {
+    marker: { r: 255, g: 134, b: 200 },
+    small: { r: 162, g: 23, b: 35 },
+    big: { r: 118, g: 224, b: 129 }
+  }
+
+  // Apply all default colors at once
+  const applyDefaultColors = async () => {
+    addLog('info', 'Applying default colors...')
+
+    // Set marker color
+    setMarkerColor(DEFAULT_COLORS.marker)
+    addLog('success', 'Marker color set', { rgb: DEFAULT_COLORS.marker })
+
+    // Set small ball color
+    setSmallBallColor(DEFAULT_COLORS.small)
+    if (sessionCode) {
+      await api('/setup', {
+        method: 'POST',
+        headers: { 'X-Session-Code': sessionCode },
+        body: JSON.stringify({ small_ball_color: DEFAULT_COLORS.small })
+      })
+    }
+    addLog('success', 'Small ball color set', { rgb: DEFAULT_COLORS.small })
+
+    // Set big ball color
+    setBigBallColor(DEFAULT_COLORS.big)
+    if (sessionCode) {
+      await api('/setup', {
+        method: 'POST',
+        headers: { 'X-Session-Code': sessionCode },
+        body: JSON.stringify({ big_ball_color: DEFAULT_COLORS.big })
+      })
+    }
+    addLog('success', 'Big ball color set', { rgb: DEFAULT_COLORS.big })
+
+    addLog('success', 'All default colors applied!')
+  }
+
   const isCalibrated = calibrationResult !== null
   const isSetupComplete = isCalibrated && smallBallColor !== null
 
@@ -1333,12 +1373,53 @@ export default function App() {
         </div>
       )}
 
+      {/* Quick Setup - Use Defaults (always visible) */}
+      <div className="card">
+        <div className="card-header">
+          <Settings className="icon" size={20} />
+          <h2>Quick Setup</h2>
+        </div>
+        <div className="defaults-section">
+          <button
+            className="btn btn-primary btn-defaults"
+            onClick={applyDefaultColors}
+          >
+            Use Defaults
+          </button>
+          <span className="defaults-hint">
+            Sets predefined colors: Marker (pink), Small Ball (red), Big Ball (green)
+          </span>
+        </div>
+        {(markerColor || smallBallColor || bigBallColor) && (
+          <div className="defaults-preview">
+            {markerColor && (
+              <div className="color-preview-item">
+                <span>Marker:</span>
+                <div className="color-swatch" style={{ backgroundColor: colorToHex(markerColor) }} />
+              </div>
+            )}
+            {smallBallColor && (
+              <div className="color-preview-item">
+                <span>Small Ball:</span>
+                <div className="color-swatch" style={{ backgroundColor: colorToHex(smallBallColor) }} />
+              </div>
+            )}
+            {bigBallColor && (
+              <div className="color-preview-item">
+                <span>Big Ball:</span>
+                <div className="color-swatch" style={{ backgroundColor: colorToHex(bigBallColor) }} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Step 2: Calibration */}
       {calibrationImage && (
         <div className="card">
           <div className="card-header">
             <Target className="icon" size={20} />
-            <h2>Step 2: Calibrate</h2>
+            <h2>Step 2: Calibrate Scale</h2>
           </div>
 
           <div className="calibration-row">
