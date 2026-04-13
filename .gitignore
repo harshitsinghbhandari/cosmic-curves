@@ -1,38 +1,23 @@
-# Dependency directories
+# Dependencies
 node_modules/
 
-# OS-specific files
+# OS files
 .DS_Store
 .DS_Store?
 ._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Backend data
-backend/data/sessions/
-backend/*.log
-
-# Vite/Next.js/React build outputs
+# Build outputs
 dist/
-dist-ssr/
-.next/
 build/
-out/
 
-# IDE files
+# IDE
 .vscode/
 .idea/
-*.swpw
+*.swp
 *.swo
 
-# Test files
-IMG_0982.MOV
-output_frames/
-output_big_ball/
-
-# Environment files (keep .env.example and default env files)
+# Environment
 .env
 .env.local
 .env.*.local
@@ -40,9 +25,25 @@ output_big_ball/
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
 env/
 venv/
 .venv/
+
+# Logs
+*.log
+
+# Backend data (sessions and runs are local)
+backend/data/sessions/
+backend/data/runs/
+backend/data/runs.json
+
+# Test files
+*.MOV
+*.mov
+*.mp4
+output_frames/
+output_big_ball/
+
+# Claude workspace
+.claude/

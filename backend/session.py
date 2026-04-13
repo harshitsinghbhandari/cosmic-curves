@@ -74,6 +74,8 @@ class SessionState:
     debug_logs: List[str] = field(default_factory=list)
     debug_frames_dir: Optional[str] = None
     all_frame_results: List[Dict[str, Any]] = field(default_factory=list)
+    debug_frame_base64: Optional[str] = None  # Latest annotated frame for live preview
+    current_frame_index: int = 0  # Current frame being processed
 
     def add_log(self, message: str):
         """Add a debug log entry with timestamp."""

@@ -342,7 +342,7 @@ def distance_mask_detect_small_ball(
 def distance_mask_detect_big_ball(
     image_input,
     target_bgr: List[int],
-    threshold: int = 35
+    threshold: int = 40
 ) -> Dict[str, Any]:
     """
     Detect the BIG ball using Euclidean Distance Masking.
@@ -351,7 +351,7 @@ def distance_mask_detect_big_ball(
     Args:
         image_input: Raw JPEG bytes or numpy array
         target_bgr: BGR color values [B, G, R] to detect (required)
-        threshold: Color distance threshold (default 35, slightly higher for big ball)
+        threshold: Color distance threshold (default 40, higher for big ball to catch more pixels)
 
     Returns:
         dict with detection result including x_px, y_px, radius_px, score, area
@@ -371,8 +371,10 @@ def distance_mask_detect_big_ball(
     mask = (dist < threshold).astype(np.uint8) * 255
 
     # Morphology to clean up noise from shadows/texture
-    kernel = np.ones((7, 7), np.uint8)  # Larger kernel for big ball
+    # Use larger kernel and more aggressive closing for big ball
+    kernel = np.ones((9, 9), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, kernel, iterations=1)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -381,12 +383,17 @@ def distance_mask_detect_big_ball(
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        # Big ball area range: 500-50000 pixels (much larger than small ball)
-        if 500 < area < 50000:
+        # Big ball area range: 1000-150000 pixels (increased range)
+        if 1000 < area < 150000:
             score = _compute_blob_score(cnt, mask, dist)
             if score > best_score:
                 best_score = score
-                (x, y), radius = cv2.minEnclosingCircle(cnt)
+                (x, y), enclosing_radius = cv2.minEnclosingCircle(cnt)
+                # Calculate radius from area for a more accurate visual size
+                # area = π * r², so r = sqrt(area / π)
+                area_based_radius = np.sqrt(area / np.pi)
+                # Use the larger of the two radius estimates
+                radius = max(enclosing_radius, area_based_radius)
                 best_candidate = {
                     "detected": True,
                     "x_px": int(x),

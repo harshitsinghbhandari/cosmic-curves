@@ -1,20 +1,14 @@
 {
-  "name": "cosmoscurves-monorepo",
-  "version": "1.0.0",
+  "name": "cosmoscurves",
+  "version": "2.0.0",
   "private": true,
-  "workspaces": [
-    "laptop-pwa",
-    "phone-pwa"
-  ],
   "scripts": {
-    "build": "npm run build -w laptop-pwa && npm run build -w phone-pwa && rm -rf public && mkdir -p public && cp -rv laptop-pwa/dist public/laptop && cp -rv phone-pwa/dist public/phone && cp index.html public/"
-  },
-  "dependencies": {
-    "lucide-react": "^0.511.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
-  },
-  "devDependencies": {
-    "vite": "^8.0.1"
+    "start": "./start.sh",
+    "dev": "cd app && npm run dev",
+    "build": "cd app && npm run build",
+    "backend": "cd backend && python -m uvicorn main:app --reload",
+    "landing:dev": "cd landing && npm run dev",
+    "landing:build": "cd landing && npm run build",
+    "landing:preview": "cd landing && npm run preview"
   }
 }

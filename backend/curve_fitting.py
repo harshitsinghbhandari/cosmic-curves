@@ -2,6 +2,22 @@ import numpy as np
 import cv2
 from scipy.optimize import least_squares
 
+
+def convert_numpy_types(obj):
+    """Recursively convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 def fit_curves(coordinates: list) -> dict:
     """
     Fit multiple curves to provided coordinates and return the best fitting one.
@@ -85,12 +101,15 @@ def fit_curves(coordinates: list) -> dict:
     winning_curve = min(results.keys(), key=lambda k: results[k]['residual'])
 
     # Build final result with winning_curve and residuals summary
-    return {
+    result = {
         "winning_curve": winning_curve,
         "equation": results[winning_curve]["equation"],
         "residuals": {k: results[k]["residual"] for k in results},
         "all_fits": results
     }
+
+    # Convert all numpy types to native Python types for JSON serialization
+    return convert_numpy_types(result)
 
 
 def draw_physics_overlay(image, result, origin_x, origin_y, px_per_cm, coordinates):
