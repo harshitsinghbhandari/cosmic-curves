@@ -65,3 +65,4 @@ cosmic-curves/
 ## License
 
 MIT
+
