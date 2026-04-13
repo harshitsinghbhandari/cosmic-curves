@@ -2,13 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "redirects": [
-    {
-      "source": "/laptop",
-      "destination": "https://www.youtube.com/watch?v=Aq5WXmQQooo",
-      "permanent": false
-    }
-  ],
   "rewrites": [
     {
       "source": "/((?!assets/).*)",
